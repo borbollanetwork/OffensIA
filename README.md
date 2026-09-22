@@ -59,7 +59,7 @@ neste repositório.
 ### Instalação com um comando
 
 ```bash
-git clone <seu-repositorio-privado> OffensIA
+git clone https://github.com/borbollanetwork/OffensIA
 cd OffensIA
 ./install.sh kimi          # ou: ./install.sh glm
 ```
@@ -179,7 +179,7 @@ and reached only through adapters — never vendored into this repository.
 ### Install (one command)
 
 ```bash
-git clone <your-private-repo> OffensIA
+git clone https://github.com/borbollanetwork/OffensIA
 cd OffensIA
 ./install.sh kimi          # or: ./install.sh glm
 ```
