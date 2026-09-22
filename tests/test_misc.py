@@ -47,10 +47,13 @@ def test_untrusted_injection_detection():
 
 def test_knowledge_index_and_gap(tmp_path):
     (tmp_path / "web").mkdir()
-    (tmp_path / "web" / "sqli.md").write_text("# SQL Injection\ntesting")
+    (tmp_path / "web" / "sqli.md").write_text(
+        "# SQL Injection\nCovers kerberoasting-style enumeration and blind payloads.")
     idx = ke.index(tmp_path)
     assert idx["count"] == 1
     assert ke.retrieve(idx, "sql injection web")["status"] == "OK"
+    # a term present only in the BODY (not path/title) is now retrievable
+    assert ke.retrieve(idx, "kerberoasting enumeration")["status"] == "OK"
     assert ke.retrieve(idx, "nonexistent quantum topic")["status"] == "KNOWLEDGE_GAP"
 
 

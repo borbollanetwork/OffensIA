@@ -31,9 +31,17 @@ def _title(path: Path) -> str:
     return path.stem
 
 
-def _tags(path: Path) -> list[str]:
-    tokens = re.split(r"[^a-z0-9]+", str(path).lower())
-    return sorted({t for t in tokens if len(t) >= 3})
+# Cap how much body text feeds the index, so large docs don't dominate.
+_CONTENT_TAG_BYTES = 4000
+_STOPWORDS = {"the", "and", "for", "with", "that", "this", "not", "are", "its",
+              "into", "when", "what", "from", "only", "each", "over", "than",
+              "must", "never", "which", "where", "requires", "evidence"}
+
+
+def _tags(path: Path, title: str = "", content: str = "") -> list[str]:
+    text = " ".join([str(path), title, content]).lower()
+    tokens = re.split(r"[^a-z0-9]+", text)
+    return sorted({t for t in tokens if len(t) >= 3 and t not in _STOPWORDS})
 
 
 def index(knowledge_dir: Path, out_file: Path | None = None) -> dict:
@@ -43,13 +51,15 @@ def index(knowledge_dir: Path, out_file: Path | None = None) -> dict:
         for path in kd.rglob("*"):
             if path.is_file() and path.suffix.lower() in TEXT_EXTS:
                 meta = _classify(path)
+                title = _title(path)
+                content = path.read_text(encoding="utf-8", errors="replace")[:_CONTENT_TAG_BYTES]
                 docs.append({
                     "doc_id": hashlib.sha256(str(path).encode()).hexdigest()[:12],
                     "path": str(path),
-                    "title": _title(path),
+                    "title": title,
                     "kind": meta["kind"],
                     "domain": meta["domain"],
-                    "tags": _tags(path),
+                    "tags": _tags(path, title, content),
                 })
     idx = {"root": str(kd), "count": len(docs), "docs": docs}
     if out_file:
