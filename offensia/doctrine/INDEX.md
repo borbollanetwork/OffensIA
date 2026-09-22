@@ -14,6 +14,8 @@ false positive is refuted.
 - `containers.md` — containers and Kubernetes (activated on discovery)
 - `code-review.md` — source-assisted review feeding the other domains
 - `research.md` — novel-vulnerability research discipline
+- `evidence-ladder.md` — evidence quality mapped to finding states; chaining rules
+- `severity.md` — contextual severity model (beyond CVSS)
 
 Every card shares the same shape: what to look for, when it applies and its
 preconditions, the evidence required to confirm, how a false positive is refuted,
