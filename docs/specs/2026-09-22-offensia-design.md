@@ -4,6 +4,7 @@
 **Status:** Approved (design phase)
 **Repository:** private
 **Consumption model:** MCP client + presets (Kimi K3, GLM)
+**Setup model:** one-command bootstrap (clone → run script → call the agent)
 
 ---
 
@@ -34,6 +35,10 @@ guarantees:
 - No finding enters the ledger without raw evidence.
 - Adding, updating, or swapping an underlying engine does not change the
   `offensia_*` tool interface the model sees.
+- **Setup is one command.** After `git clone`, a single script installs
+  dependencies, provisions engines, registers the MCP preset into the user's LLM
+  agent config, boots the stack, and prints how to start. The user then just runs
+  their agent; no manual JSON editing.
 
 ### Non-goals
 
@@ -175,12 +180,48 @@ and prompt wording differ per model.
 
 ---
 
-## 6. Dependencies and installation
+## 6. One-command bootstrap (primary UX)
 
-`install.sh` provisions the backend engines into `deps/` (git submodule or
-pip/Docker) and verifies health. Because engines are referenced rather than
-copied, upstream updates are pulled without touching OffensIA source, and each
-engine's own license notices remain in place inside its dependency directory.
+The headline experience: **clone, run one script, call the agent.**
+
+```
+git clone <offensia-repo> && cd OffensIA
+./install.sh            # or: ./offensia init
+# ... then just start your LLM agent; OffensIA tools are already there.
+```
+
+`install.sh` is an idempotent, self-checking bootstrap that performs, in order:
+
+1. **Preflight** — verify prerequisites (Python 3, Docker, git). Missing ones are
+   reported with the exact fix command; the script stops rather than half-installing.
+2. **Provision engines** — pull the backend engines into `deps/` (git submodule or
+   pinned installer) and install their runtime requirements. Idempotent: re-running
+   updates rather than duplicates.
+3. **Provision core** — install `offensia-core` requirements (isolated venv under
+   `deps/` so it never pollutes the user's system Python).
+4. **Detect the LLM agent** — auto-locate the user's agent config directory:
+   - Kimi CLI (config path / `kimi mcp add`),
+   - GLM client (config path — exact format confirmed at implementation),
+   - and accept `--agent <name>` / `--agent-config <path>` to override detection.
+5. **Register the preset** — write/merge the OffensIA MCP servers into that agent's
+   config (from `presets/<agent>/`). Existing user config is merged, not clobbered;
+   a timestamped backup is written first.
+6. **Boot + self-test** — start the stack and run the core self-test (scope loader,
+   ledger write, engine health). Report PASS/FAIL per component.
+7. **Print next step** — a single line telling the user how to start their agent.
+
+Design constraints for the bootstrap:
+
+- **Idempotent** — safe to re-run; converges to the same state.
+- **Non-destructive** — never overwrites user agent config without a backup.
+- **No manual JSON** — the user never hand-edits an MCP config.
+- **Fail loud, fail early** — a missing prerequisite stops with an actionable message.
+- **Uninstall path** — `./offensia uninstall` removes the registered MCP entries
+  (restoring the backup) and stops the stack, leaving the clone intact.
+
+`deps/` holds the backend engines referenced rather than copied, so upstream
+updates are pulled without touching OffensIA source, and each engine's own license
+notices remain in place inside its dependency directory.
 
 Backend capability classes required:
 
@@ -221,6 +262,14 @@ long as the class is satisfied.
 - **Smoke** — `offensia up` boots the stack and passes a self-test;
   `offensia_recon` against a local lab target returns raw content and a ledger line.
 - **Preset test** — Kimi and GLM MCP configs are valid and load.
+- **Bootstrap test** — `install.sh` is idempotent (second run is a no-op/update),
+  merges into an existing agent config without data loss, writes a restorable
+  backup, and `offensia uninstall` restores the pre-install state. Preflight fails
+  loudly when a prerequisite is absent.
+
+Note: bootstrap registers the tools but does **not** weaken the safety model —
+`scope.allow` still ships empty, so a freshly installed agent can enumerate the
+`offensia_*` tools yet cannot act on any target until one is authorized.
 
 ---
 
@@ -232,3 +281,5 @@ long as the class is satisfied.
   the operator's workflow best.
 - Whether v1 ships the autonomous engagement tool or defers it to v2 (core loop of
   recon → exec → finding → report is the minimum viable engagement).
+- Exact config path and registration mechanism for each supported agent (Kimi CLI,
+  GLM client) so `install.sh` step 4–5 can auto-detect and merge reliably.
