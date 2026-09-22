@@ -1,0 +1,11 @@
+OffensIA
+Copyright 2026 OffensIA authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+OffensIA orchestrates external tool engines that are consumed as separate
+dependencies at install time (see deps/engines.yaml). Those dependencies are not
+included in this repository; each retains its own license and NOTICE files inside
+its own directory under deps/ when provisioned. OffensIA does not modify or
+redistribute their source, and their notices are preserved where they are
+installed.

@@ -1,0 +1,28 @@
+# OffensIA — keep secrets, engagement data, and provisioned engines out of git.
+
+# Real scope (targets) — only the template is tracked.
+scope.allow
+
+# Provisioned external engines (never vendored)
+deps/*/
+!deps/.gitkeep
+
+# Engagement outputs, evidence, findings, ledgers, attack graphs
+engagements/
+knowledge_index.json
+
+# Secrets / environment
+.env
+*.key
+*.pem
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# Config backups produced by agent registration
+*.bak.*

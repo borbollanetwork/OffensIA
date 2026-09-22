@@ -1,0 +1,53 @@
+# OffensIA external engine manifest (Execution Plane dependencies).
+#
+# This is a functional provisioning file, not documentation. Engines are consumed
+# as dependencies through adapters; their source is never vendored into this repo,
+# and their own LICENSE/NOTICE files are preserved inside deps/<name>/.
+#
+# PIN YOUR DEPENDENCIES: set `commit` to an exact revision for production. When
+# `commit` is empty the installer clones the given `ref` (branch/tag), which is
+# acceptable for first setup but not for reproducible production installs.
+
+engines:
+  - name: execution_primary
+    provider_key: execution_primary
+    repository: https://github.com/0x4m4/hexstrike-ai
+    ref: main
+    commit: ""            # <-- pin to an exact commit for production
+    version: "unpinned"
+    license: MIT
+    install_method: pip
+    install: "pip install -r requirements.txt"
+    startup_command: "python3 hexstrike_server.py"
+    healthcheck: "http://127.0.0.1:8888/health"
+    required_runtime: python3
+    risk_class: active
+    capabilities:
+      - network.port_scan
+      - web.http_probe
+      - generic.command
+
+  - name: recon_primary
+    provider_key: recon_primary
+    repository: https://github.com/unclecode/crawl4ai
+    ref: main
+    commit: ""            # <-- pin to an exact commit for production
+    version: "unpinned"
+    license: Apache-2.0
+    install_method: docker
+    install: "docker compose up -d"
+    startup_command: "docker compose up -d"
+    healthcheck: "http://127.0.0.1:11235/health"
+    required_runtime: docker
+    risk_class: passive
+    capabilities:
+      - web.content_extract
+
+# Deferred to a later milestone (autonomous engagement engine). Interface exists
+# via the capability registry; no adapter is bound yet in v1.
+future:
+  - name: autonomous_primary
+    repository: https://github.com/usestrix/strix
+    license: Apache-2.0
+    status: deferred_v2
+    notes: "Sandboxed autonomous engagement. Must sit above scope/policy/evidence/validation/ledger."

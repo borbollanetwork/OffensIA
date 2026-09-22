@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "offensia": {
+      "command": "python3",
+      "args": ["-m", "offensia.core.server"],
+      "env": {
+        "OFFENSIA_BASE": "{{OFFENSIA_BASE}}",
+        "OFFENSIA_PROVIDER": "glm"
+      }
+    }
+  }
+}

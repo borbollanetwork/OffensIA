@@ -1,0 +1,19 @@
+# OffensIA authorized scope — DEFAULT DENY.
+#
+# One entry per line. Nothing is tested unless it appears here, and only with
+# written authorization from the target owner (contract, ticket, bug-bounty
+# program) or your own lab.
+#
+# Forms supported:
+#   example.com                exact host
+#   *.example.com              domain + subdomains
+#   10.0.0.0/24                CIDR
+#   192.168.1.10               IP
+#   !secret.example.com        exclusion (wins over any allow)
+#
+# Metadata goes in the trailing comment, e.g.:
+#   app.authorized.example     # auth=CONTRACT-2026-001 engagement=ENG-42
+#
+# Examples (commented out — uncomment and edit):
+# 127.0.0.1                    # LAB
+# *.lab.internal               # auth=LAB

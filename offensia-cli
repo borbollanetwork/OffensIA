@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Convenience wrapper. Prefer the installed console script `offensia` after
+# `pip install -e .`; this shim works from a clone without activation.
+BASE="$(cd "$(dirname "$0")" && pwd)"
+export OFFENSIA_BASE="${OFFENSIA_BASE:-$BASE}"
+if [ -x "$BASE/.venv/bin/python" ]; then
+  PY="$BASE/.venv/bin/python"
+else
+  PY="python3"
+fi
+exec "$PY" -m offensia.core.cli "$@"
