@@ -21,11 +21,24 @@ that is not.
 - One-command installer; non-destructive, abort-on-malformed agent registration.
 - CLI surface.
 
+## Reference engine (dev / self-test)
+- `offensia/engines/reference_engine.py` is a lightweight, dependency-free local
+  backend that satisfies the adapter HTTP contracts (`/health`, `/api/command`,
+  `/md`). It runs real local commands and real HTTP fetches, bound to 127.0.0.1.
+  Start it with `python -m offensia.engines.reference_engine` to make
+  `offensia doctor` green and exercise the full pipeline without Docker or heavy
+  suites. It is **not** the production engine set — provision the engines in
+  `deps/engines.yaml` for a real assessment.
+
 ## Interface present, depends on runtime provisioning
-- **Execution / recon engines**: OffensIA talks to them over HTTP. They are
-  provisioned from `deps/engines.yaml` at install time; until they are running,
+- **Production execution / recon engines**: OffensIA talks to them over HTTP. They
+  are provisioned from `deps/engines.yaml` at install time; until they are running,
   `offensia_exec` / `offensia_recon_crawl` return structured "engine unavailable"
   errors (by design). The adapter contracts are covered by tests using mocks.
+  Note: the reference recon path is HTTP-fetch only; the production recon engine
+  adds rendered crawling/screenshots. The production execution engine adds the full
+  security-tool suite (nmap, etc.) which the reference engine only proxies if the
+  binary exists locally.
 - **Engine command semantics**: `offensia_port_scan` composes an `nmap`-style
   command for the execution engine. Confirm the exact command surface your
   provisioned engine expects.

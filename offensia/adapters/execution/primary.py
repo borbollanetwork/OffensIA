@@ -29,7 +29,10 @@ def run_command(target: str, command: str, use_cache: bool = True) -> dict:
     except Exception as exc:  # noqa: BLE001 — must not crash the MCP layer
         return result(False, target, "exec", error=f"{type(exc).__name__}: {exc}")
     raw, bounded = bound_output(str(data.get("stdout", "")), s["http_max_bytes"])
-    return result(True, target, "exec", raw=raw, bounded=bounded,
+    # ok reflects COMMAND success (return_code 0 / engine success), not HTTP
+    # transport — the validation engine keys reproduction on this signal.
+    succeeded = bool(data.get("success")) and int(data.get("return_code", 0) or 0) == 0
+    return result(succeeded, target, "exec", raw=raw, bounded=bounded,
                   summary=f"rc={data.get('return_code')} success={data.get('success')}")
 
 
