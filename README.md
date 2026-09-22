@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="OffensIA" width="100%">
+</p>
+
 # OffensIA
 
 **Evidence-driven offensive-security orchestration for authorized assessments.**
