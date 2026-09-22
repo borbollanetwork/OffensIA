@@ -4,7 +4,10 @@
 
 # OffensIA
 
-**Evidence-driven offensive-security orchestration for authorized assessments.**
+**Evidence-driven, model-agnostic offensive-security orchestration platform for
+authorized pentests. Scope-is-law (default-deny), evidence-gated findings with a
+validation state machine, and a hash-chained audit ledger — safety enforced in
+code, not prompts. MCP-native for Kimi & GLM. Created by Renato Borbolla.**
 
 OffensIA turns a disciplined offensive-security methodology into a governed,
 model-agnostic platform an LLM operator (Kimi / GLM) drives through a single MCP
