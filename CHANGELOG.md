@@ -1,7 +1,22 @@
 # Changelog
 
 All notable changes to OffensIA are documented here. Format loosely follows
-Keep a Changelog; this project uses semantic-ish versioning while pre-1.0.
+Keep a Changelog.
+
+## [1.1.0] — 2026-09-22
+
+### Added
+- CI (GitHub Actions): ruff + mypy + bandit + pytest on Python 3.11/3.12/3.13.
+- Lint/type/security tooling configured in pyproject; pinned engine commits in
+  deps/engines.yaml with pinned-checkout in the installer.
+- Doctrine cards for core and extended domains: web, api, mobile, internal/AD,
+  cloud, containers/Kubernetes, code review, web3, iot, wireless, binary, research.
+- Distilled cross-cutting doctrine: evidence ladder (validation states + chaining)
+  and a contextual severity model beyond CVSS.
+- Hardened Kimi/GLM operator system prompts (evidence-first, chaining discipline,
+  high-risk safety gates, coverage honesty).
+- Knowledge engine indexes title + bounded body tokens for accurate selective
+  retrieval; reference engine for dependency-free end-to-end self-test.
 
 ## [0.1.0] — 2026-09-22
 

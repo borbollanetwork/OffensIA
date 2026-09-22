@@ -14,6 +14,10 @@ false positive is refuted.
 - `containers.md` — containers and Kubernetes (activated on discovery)
 - `code-review.md` — source-assisted review feeding the other domains
 - `research.md` — novel-vulnerability research discipline
+- `web3.md` — smart contracts and on-chain protocols
+- `iot.md` — connected devices, firmware, and hardware
+- `wireless.md` — Wi-Fi, Bluetooth/BLE, NFC/RFID and radio
+- `binary.md` — native binaries and exploit development
 - `evidence-ladder.md` — evidence quality mapped to finding states; chaining rules
 - `severity.md` — contextual severity model (beyond CVSS)
 
