@@ -101,3 +101,11 @@ evidence, validation, coverage, knowledge, threat model, development.
 First production-oriented build. The autonomous engagement engine is deferred to a
 later milestone; its interface exists via the capability registry. See
 `docs/LIMITATIONS.md` for what is fully implemented versus interface-only.
+
+## Author & Credits
+
+Created by **Renato Borbolla** — https://renatoborbolla.com
+
+If you improve, clone, or fork this project, please give due credit to the author
+(Renato Borbolla), keeping this attribution and a link to https://renatoborbolla.com
+in your copy or derivative work.
