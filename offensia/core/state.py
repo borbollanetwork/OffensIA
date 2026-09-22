@@ -7,7 +7,7 @@ findings, hypotheses, and pending work restored from disk.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from offensia.core.config import get_paths
@@ -24,7 +24,7 @@ def create(assessment_id: str, engagement: str = "", base: str | None = None) ->
     data = {
         "assessment_id": assessment_id,
         "engagement": engagement,
-        "created": datetime.now(timezone.utc).isoformat(),
+        "created": datetime.now(UTC).isoformat(),
         "discoveries": {"technologies": [], "hosts": []},
         "hypotheses": [],
         "pending_tests": [],

@@ -1,5 +1,6 @@
 import pytest
-from offensia.core.scope import normalize, in_scope, add_entry, remove_entry, load_scope
+
+from offensia.core.scope import add_entry, in_scope, load_scope, normalize, remove_entry
 
 
 @pytest.mark.parametrize("raw,host,port", [

@@ -41,16 +41,19 @@ if not man.exists():
 data = yaml.safe_load(man.read_text()) or {}
 for eng in data.get("engines", []):
     name, repo = eng["name"], eng["repository"]
-    ref = eng.get("commit") or eng.get("ref") or "main"
+    branch = eng.get("ref") or "main"
+    commit = eng.get("commit") or ""
     dest = base / "deps" / name
-    if (dest / ".git").exists():
-        print(f"[*] {name}: present (skip clone)")
+    if not (dest / ".git").exists():
+        print(f"[*] {name}: cloning {repo}@{branch}")
+        if subprocess.call(["git","clone","--branch",branch,repo,str(dest)]) != 0:
+            subprocess.call(["git","clone",repo,str(dest)])
+    if commit:
+        print(f"[*] {name}: checking out pinned {commit[:12]}")
+        subprocess.call(["git","-C",str(dest),"fetch","-q","origin",commit])
+        if subprocess.call(["git","-C",str(dest),"checkout","-q",commit]) != 0:
+            print(f"[WARN] {name}: could not checkout pinned commit; on {branch} HEAD")
     else:
-        print(f"[*] {name}: cloning {repo}@{ref}")
-        rc = subprocess.call(["git","clone","--depth","1","--branch",ref,repo,str(dest)])
-        if rc != 0:
-            subprocess.call(["git","clone","--depth","1",repo,str(dest)])
-    if not eng.get("commit"):
         print(f"[WARN] {name}: unpinned (set commit in engines.yaml for production)")
 PY
 

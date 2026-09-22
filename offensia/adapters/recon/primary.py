@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import requests
 
+from offensia.adapters.base import bound_output, result
 from offensia.core.config import settings
-from offensia.adapters.base import result, bound_output
 
 PROVIDER_KEY = "recon_primary"
 CAPABILITIES = ("web.content_extract",)
@@ -18,7 +18,7 @@ CAPABILITIES = ("web.content_extract",)
 def fetch(target: str, mode: str = "md") -> dict:
     s = settings()
     try:
-        resp = requests.post(
+        resp = requests.post(  # nosec B113 — timeout is set dynamically below
             f"{s['recon_url']}/{mode}",
             json={"url": target},
             timeout=s["http_timeout"],

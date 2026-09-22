@@ -12,9 +12,9 @@ engines:
   - name: execution_primary
     provider_key: execution_primary
     repository: https://github.com/0x4m4/hexstrike-ai
-    ref: main
-    commit: ""            # <-- pin to an exact commit for production
-    version: "unpinned"
+    ref: master
+    commit: d689933ff579d839c676c82b231f8e98326c5f04
+    version: "pinned@d689933"
     license: MIT
     install_method: pip
     install: "pip install -r requirements.txt"
@@ -31,8 +31,8 @@ engines:
     provider_key: recon_primary
     repository: https://github.com/unclecode/crawl4ai
     ref: main
-    commit: ""            # <-- pin to an exact commit for production
-    version: "unpinned"
+    commit: 862f6bccb9c063f49b9d42701baa0eea17a4993f
+    version: "pinned@862f6bc"
     license: Apache-2.0
     install_method: docker
     install: "docker compose up -d"
@@ -48,6 +48,8 @@ engines:
 future:
   - name: autonomous_primary
     repository: https://github.com/usestrix/strix
+    ref: main
+    commit: e158eab3f869a0911f0697e3311f8c47a7625bea
     license: Apache-2.0
     status: deferred_v2
     notes: "Sandboxed autonomous engagement. Must sit above scope/policy/evidence/validation/ledger."

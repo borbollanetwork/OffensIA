@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import requests
 
+from offensia.adapters.base import bound_output, result
 from offensia.core.config import settings
-from offensia.adapters.base import result, bound_output
 
 PROVIDER_KEY = "execution_primary"
 CAPABILITIES = ("network.port_scan", "web.http_probe", "generic.command")
@@ -19,7 +19,7 @@ CAPABILITIES = ("network.port_scan", "web.http_probe", "generic.command")
 def run_command(target: str, command: str, use_cache: bool = True) -> dict:
     s = settings()
     try:
-        resp = requests.post(
+        resp = requests.post(  # nosec B113 — timeout is set dynamically below
             f"{s['execution_url']}/api/command",
             json={"command": command, "use_cache": use_cache},
             timeout=s["http_timeout"],

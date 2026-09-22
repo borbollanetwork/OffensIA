@@ -17,8 +17,9 @@ CONFIRMING = {fnd.VALIDATED, fnd.EXPLOITABLE, fnd.CONFIRMED_IMPACT}
 
 
 def _bucket(findings: list[fnd.Finding]) -> dict[str, list[fnd.Finding]]:
-    b = {"validated": [], "suspected": [], "inconclusive": [], "false_positive": [],
-         "blocked": [], "informational": []}
+    b: dict[str, list[fnd.Finding]] = {
+        "validated": [], "suspected": [], "inconclusive": [], "false_positive": [],
+        "blocked": [], "informational": []}
     for f in findings:
         if f.status in CONFIRMING:
             b["validated"].append(f)

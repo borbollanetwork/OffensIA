@@ -16,7 +16,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+    "bandit>=1.7.0",
+    "types-requests",
+    "types-PyYAML",
+]
 
 [project.scripts]
 offensia = "offensia.core.cli:main"
@@ -26,3 +33,27 @@ include = ["offensia*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["integration: end-to-end tests that need a running engine"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["deps", ".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# E702: compact one-line argparse setup in the CLI is intentional.
+# E501: long lines tolerated (docstrings/URLs). B008: not applicable here.
+ignore = ["E501", "E702", "B008"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = true
+exclude = "(deps/|build/|\\.venv/)"
+
+[tool.bandit]
+exclude_dirs = ["tests", "deps", ".venv"]
+# B404/B603/B607: subprocess use is core to the execution adapter & engine, by design.
+skips = ["B404", "B603", "B607", "B310", "B324"]

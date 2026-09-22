@@ -1,9 +1,8 @@
-from pathlib import Path
-from offensia.core import coverage as cov
 from offensia.core import attack_graph as ag
+from offensia.core import coverage as cov
 from offensia.core import evidence as ev
-from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core import untrusted
+from offensia.core.capability_registry import CapabilityRegistry
 from offensia.knowledge import engine as ke
 from offensia.providers.glm import get_provider
 

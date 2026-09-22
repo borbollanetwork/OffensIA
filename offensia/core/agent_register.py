@@ -14,7 +14,7 @@ import json
 import os
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -31,7 +31,7 @@ def build_server_entry(base: Path, python: str) -> dict:
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -59,7 +59,7 @@ def merge_config(config_path: Path, server_entry: dict, name: str = "offensia") 
             raise RegistrationAbort(
                 f"existing config at {config_path} is malformed JSON ({exc}); "
                 "aborting to preserve it. Fix or move it, then retry."
-            )
+            ) from exc
         if not isinstance(existing, dict):
             raise RegistrationAbort(
                 f"existing config at {config_path} is not a JSON object; aborting."

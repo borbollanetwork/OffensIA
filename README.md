@@ -4,6 +4,9 @@
 
 # OffensIA
 
+[![CI](https://github.com/borbollanetwork/OffensIA/actions/workflows/ci.yml/badge.svg)](https://github.com/borbollanetwork/OffensIA/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 **Evidence-driven, model-agnostic offensive-security orchestration platform for
 authorized pentests. Scope-is-law (default-deny), evidence-gated findings with a
 validation state machine, and a hash-chained audit ledger — safety enforced in

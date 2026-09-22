@@ -7,17 +7,17 @@ neutral offensia_* tools. Safety is enforced here in code, not by prompt.
 """
 from __future__ import annotations
 
-from offensia.core.config import get_paths
-from offensia.core import scope as scope_mod
-from offensia.core import ledger as ledger_mod
-from offensia.core import evidence as ev_mod
-from offensia.core import finding as fnd
-from offensia.core import coverage as cov
-from offensia.core import validation as val
-from offensia.core import untrusted
-from offensia.reporting import generator as report_gen
 from offensia.adapters.execution import primary as execp
 from offensia.adapters.recon import primary as reconp
+from offensia.core import coverage as cov
+from offensia.core import evidence as ev_mod
+from offensia.core import finding as fnd
+from offensia.core import ledger as ledger_mod
+from offensia.core import scope as scope_mod
+from offensia.core import untrusted
+from offensia.core import validation as val
+from offensia.core.config import get_paths
+from offensia.reporting import generator as report_gen
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -25,7 +25,7 @@ try:
 except Exception:  # noqa: BLE001 — safe degradation if mcp not installed
     _HAVE_MCP = False
 
-    class FastMCP:  # minimal stub so the module imports and tools stay callable
+    class FastMCP:  # type: ignore[no-redef]  # minimal stub if mcp not installed
         def __init__(self, name): self.name = name
         def tool(self):
             def deco(fn): return fn

@@ -1,4 +1,5 @@
 import pytest
+
 from offensia.core import finding as fnd
 
 

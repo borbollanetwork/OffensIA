@@ -44,7 +44,7 @@ class BaseModelProvider:
         return {
             "key": self.metadata.key,
             "display_name": self.metadata.display_name,
-            "model_id": self.model_id or "(unset — configure via %s)" % self.metadata.model_env,
+            "model_id": self.model_id or f"(unset — configure via {self.metadata.model_env})",
             "base_url": self.base_url,
             "supports_mcp": self.metadata.supports_mcp,
             "missing_config": self.requires(),

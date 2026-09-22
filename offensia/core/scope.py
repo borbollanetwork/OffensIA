@@ -10,7 +10,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -122,7 +122,7 @@ def add_entry(target: str, authorization_ref: str, scope_file: Path,
     if not authorization_ref or not authorization_ref.strip():
         raise ValueError("authorization_ref is required to add a scope entry")
     Path(scope_file).parent.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).isoformat()
+    stamp = datetime.now(UTC).isoformat()
     entry = target.strip().lower()
     meta = f"auth={authorization_ref.strip()} added={stamp}"
     if engagement:

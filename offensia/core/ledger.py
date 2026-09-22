@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 GENESIS = "0" * 64
@@ -45,7 +45,7 @@ def append(assessment_dir: Path, record: dict) -> dict:
     previous = _last_hash(path)
     body = {
         "event_id": uuid.uuid4().hex,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "previous_event_hash": previous,
         **record,
     }

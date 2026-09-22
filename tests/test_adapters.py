@@ -1,5 +1,6 @@
 import requests
-from offensia.adapters.base import result, bound_output
+
+from offensia.adapters.base import bound_output, result
 from offensia.adapters.execution import primary as execp
 from offensia.adapters.recon import primary as reconp
 
