@@ -51,6 +51,13 @@ _distro_ids() {
 _install_docker_apt() {
   local SUDO="$1"
   command -v apt-get >/dev/null || { err "apt-get not found; install Docker manually"; return 1; }
+  # A failed get.docker.com run may leave a docker.list pointing at a nonexistent
+  # Kali repo, which breaks every apt update. Remove it if present.
+  if [ -f /etc/apt/sources.list.d/docker.list ] && \
+     grep -q "download.docker.com" /etc/apt/sources.list.d/docker.list 2>/dev/null; then
+    ${SUDO:+$SUDO }rm -f /etc/apt/sources.list.d/docker.list
+    info "removed stale docker.list (broken Kali docker repo)"
+  fi
   ${SUDO:+$SUDO }apt-get update -qq || true
   ${SUDO:+$SUDO }apt-get install -y -qq docker.io docker-compose >/dev/null 2>&1 \
     || ${SUDO:+$SUDO }apt-get install -y -qq docker.io >/dev/null 2>&1

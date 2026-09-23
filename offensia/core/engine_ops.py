@@ -74,9 +74,13 @@ def start_engine(paths: Paths, eng: dict, wait: int = 30) -> dict:
         compose = _docker_compose()
         if compose is None:
             return {"name": name, "status": "skipped", "detail": "docker not found"}
+        # Stream output: the first build/pull of a large image can take minutes,
+        # and a silent (captured) run looks frozen.
+        print(f"  … {name}: docker compose up (first run builds/pulls a large image, "
+              f"this can take several minutes)")
         try:
             subprocess.run([*compose, "up", "-d"], cwd=str(dest), check=False,
-                           capture_output=True, timeout=600)
+                           timeout=1800)
         except (subprocess.SubprocessError, OSError) as exc:
             return {"name": name, "status": "error", "detail": str(exc)}
     else:
