@@ -31,7 +31,13 @@ def test_recon_stores_evidence_and_ledger(srv, monkeypatch):
                             True, target, "recon", raw="# real page content here", summary="recon:md"))
     out = srv.offensia_recon_crawl("https://example.com")
     assert out["ok"] and out["evidence_id"] and out["ledger_ref"]
-    assert "OFFENSIA_UNTRUSTED_DATA" in out["model_view"]
+    assert "OFFENSIA_UNTRUSTED_DATA" in out["preview"]
+    assert "model_view" not in out
+    assert out["digest"]["kind"] == "recon"
+    # full raw still resolvable via evidence store, not dumped into the result
+    full = srv.ev_mod.load(srv._adir("default"),
+                           srv._sha_for(srv._adir("default"), out["evidence_id"]))
+    assert full.decode() == "# real page content here"
     v = srv.offensia_ledger_verify()["integrity"]
     assert v["ok"] is True
 
