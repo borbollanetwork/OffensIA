@@ -5,9 +5,16 @@ recorded so an interrupted run never looks completed.
 from __future__ import annotations
 
 import json
+import json as _json
 import os
+import os as _os
+import tempfile as _tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+
+from offensia.core import evidence as _evidence
+from offensia.core import ledger as _ledger
+from offensia.core.jobs import JobRejected, validate_job
 
 TERMINAL = {"completed", "failed", "interrupted", "refused"}
 
@@ -95,3 +102,62 @@ def resume(adir: Path) -> list[dict]:
         rec = record_action(adir, next_seq(adir), "interrupted", {"job_id": job_id})
         interrupted.append(rec)
     return interrupted
+
+
+def _atomic_write_json(path: Path, obj: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = _tempfile.mkstemp(dir=str(path.parent), prefix=".ckpt-", suffix=".tmp")
+    try:
+        with _os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(_json.dumps(obj, ensure_ascii=False, indent=2))
+            fh.flush(); _os.fsync(fh.fileno())
+        _os.replace(tmp, path)
+    finally:
+        if _os.path.exists(tmp):
+            _os.remove(tmp)
+
+
+def _checkpoint(adir: Path, job, status: str, seq: int, evidence_id: str | None) -> None:
+    _atomic_write_json(Path(adir) / "state.json", {
+        "last_job_id": job.job_id, "last_action_seq": seq, "last_status": status,
+        "last_evidence_id": evidence_id})
+
+
+def run_job(adir, job, *, scope_file, runner, health_probe=None) -> dict:
+    adir = Path(adir)
+    seq = next_seq(adir)
+    # validate first; a rejected job is recorded 'refused' and nothing runs
+    try:
+        validate_job(job, scope_file)
+    except JobRejected as exc:
+        record_action(adir, seq, "refused", {"job_id": job.job_id, "reason": exc.reason})
+        _checkpoint(adir, job, "refused", seq, None)
+        return {"status": "refused", "action_seq": seq, "reason": exc.reason,
+                "evidence_id": None, "ledger_ref": None}
+    record_action(adir, seq, "intent", {"job_id": job.job_id, "tool_id": job.tool_id,
+                                        "targets": job.targets})
+    # health-aware halt: do not hammer an unavailable target
+    if health_probe is not None and not all(health_probe(t) for t in job.targets):
+        record_action(adir, next_seq(adir), "interrupted",
+                      {"job_id": job.job_id, "reason": "target_unavailable"})
+        _checkpoint(adir, job, "interrupted", seq, None)
+        return {"status": "interrupted", "action_seq": seq, "reason": "target_unavailable",
+                "evidence_id": None, "ledger_ref": None}
+    record_action(adir, next_seq(adir), "running", {"job_id": job.job_id})
+    try:
+        result = runner(job)
+    except Exception as exc:  # noqa: BLE001 — runner failure is a job failure, not a crash
+        record_action(adir, next_seq(adir), "failed", {"job_id": job.job_id, "error": str(exc)})
+        _checkpoint(adir, job, "failed", seq, None)
+        return {"status": "failed", "action_seq": seq, "error": str(exc),
+                "evidence_id": None, "ledger_ref": None}
+    ev = _evidence.store(adir, result.get("raw", ""), kind=job.capability)
+    event = _ledger.append(adir, {"kind": "job", "action": "run_job", "job_id": job.job_id,
+                                  "tool_id": job.tool_id, "ok": result.get("ok"),
+                                  "evidence_id": ev.evidence_id})
+    status = "completed" if result.get("ok") else "failed"
+    record_action(adir, next_seq(adir), status, {"job_id": job.job_id,
+                                                 "evidence_id": ev.evidence_id})
+    _checkpoint(adir, job, status, seq, ev.evidence_id)
+    return {"status": status, "action_seq": seq, "evidence_id": ev.evidence_id,
+            "ledger_ref": event["event_id"]}
