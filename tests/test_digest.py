@@ -29,7 +29,7 @@ def test_nmap_digest_extracts_ports():
 def test_digest_is_bounded_and_never_raises_on_garbage():
     d = summarize("http", b"\x00\xff" * 100000)     # binary, huge
     assert isinstance(d, dict) and d["bytes"] == 200000
-    for k, v in d.items():
+    for v in d.values():
         if isinstance(v, list):
             assert len(v) <= 20
     assert summarize("http", "") == {"kind": "http", "bytes": 0}
