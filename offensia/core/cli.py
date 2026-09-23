@@ -190,6 +190,27 @@ def cmd_engines_status(args) -> int:
     return 0
 
 
+def cmd_engines_up(args) -> int:
+    from offensia.core import engine_ops
+    results = engine_ops.up_all(get_paths(), wait=args.wait)
+    if not results:
+        print("no engines in deps/engines.yaml manifest")
+        return 1
+    bad = 0
+    for r in results:
+        if r["status"] not in ("up", "already_up"):
+            bad += 1
+        print(f"{r['name']}: {r['status']} {('— ' + r['detail']) if r['detail'] else ''}")
+    return 0 if bad == 0 else 1
+
+
+def cmd_engines_down(args) -> int:
+    from offensia.core import engine_ops
+    for r in engine_ops.down_all(get_paths()):
+        print(f"{r['name']}: {r['status']}")
+    return 0
+
+
 def cmd_knowledge_index(args) -> int:
     from offensia.knowledge import engine as ke
     paths = get_paths()
@@ -246,6 +267,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     ep = sub.add_parser("engines"); eps = ep.add_subparsers(dest="ecmd", required=True)
     eps.add_parser("status").set_defaults(func=cmd_engines_status)
+    eup = eps.add_parser("up"); eup.add_argument("--wait", type=int, default=30)
+    eup.set_defaults(func=cmd_engines_up)
+    eps.add_parser("down").set_defaults(func=cmd_engines_down)
 
     kp = sub.add_parser("knowledge"); kps = kp.add_subparsers(dest="kcmd", required=True)
     ki = kps.add_parser("index"); ki.add_argument("path"); ki.set_defaults(func=cmd_knowledge_index)

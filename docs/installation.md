@@ -29,3 +29,17 @@ python -m pytest -q  # run the test suite
 ```bash
 offensia agent unregister --agent-config /path/to/agent/mcp.json   # restores backup
 ```
+
+## Engine stack
+
+The installer starts Docker-based engines automatically when Docker is present.
+Manage them anytime:
+```bash
+offensia engines up      # start engines from deps/engines.yaml (Docker + pip)
+offensia engines status  # show pinned commit and provisioned state
+offensia engines down    # stop them
+```
+Without Docker, the dependency-free reference engine can stand in:
+```bash
+python -m offensia.engines.reference_engine
+```
