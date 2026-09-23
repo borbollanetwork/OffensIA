@@ -1,8 +1,8 @@
 # tests/test_oracle_authorization.py
-from offensia.core.oracles.authorization import AuthorizationOracle
 from offensia.core.oracles import base
+from offensia.core.oracles.authorization import AuthorizationOracle
 
-O = AuthorizationOracle()
+ORACLE = AuthorizationOracle()
 
 
 def _r(body, ok=True): return {"ok": ok, "raw": body}
@@ -13,7 +13,7 @@ def test_confirms_cross_identity_access():
         target="t", identity={"marker": "ssn=999-b"},
         candidate=_r("HTTP/1.1 200 OK\n\n{'owner':'B', ssn=999-b}"),
         negative_control=_r("HTTP/1.1 403 Forbidden\n\naccess denied"))
-    v = O.evaluate(ctx)
+    v = ORACLE.evaluate(ctx)
     assert v.verdict == "confirmed" and v.negative_control_used
 
 
@@ -22,7 +22,7 @@ def test_no_marker_means_not_confirmed():
         target="t", identity={"marker": "ssn=999-b"},
         candidate=_r("HTTP/1.1 200 OK\n\n{}"),
         negative_control=_r("HTTP/1.1 403 Forbidden"))
-    assert O.evaluate(ctx).verdict != "confirmed"
+    assert ORACLE.evaluate(ctx).verdict != "confirmed"
 
 
 def test_control_also_grants_is_inconclusive():
@@ -31,4 +31,4 @@ def test_control_also_grants_is_inconclusive():
         target="t", identity={"marker": "ssn=999-b"},
         candidate=_r("HTTP/1.1 200 OK\n\nssn=999-b"),
         negative_control=_r("HTTP/1.1 200 OK\n\nssn=999-b"))
-    assert O.evaluate(ctx).verdict == "inconclusive"
+    assert ORACLE.evaluate(ctx).verdict == "inconclusive"
