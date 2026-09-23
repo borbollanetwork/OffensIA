@@ -7,6 +7,7 @@ and ``core.validation``).
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -64,6 +65,31 @@ class Finding:
     validation_events: list[str] = field(default_factory=list)
     checks_passed: list[str] = field(default_factory=list)
     notes: str = ""
+    # Canonical fields (v1.2+, all optional with defaults)
+    finding_version: int = 2
+    component: str = ""
+    identity: dict = field(default_factory=dict)
+    request_refs: list[str] = field(default_factory=list)
+    response_refs: list[str] = field(default_factory=list)
+    oracle: str = ""
+    technical_description: str = ""
+    plain_description: str = ""
+    reproduction: list = field(default_factory=list)
+    impact_demonstrated: str = ""
+    impact_projected: str = ""
+    exploitability: str = ""
+    blast_radius: str = ""
+    root_cause: str = ""
+    remediation: str = ""
+    detection: str = ""
+    cvss_vector: str = ""
+    capec: str = ""
+    owasp: str = ""
+    attack: str = ""
+    requires: list[str] = field(default_factory=list)
+    grants: list[str] = field(default_factory=list)
+    limitations: str = ""
+    retest: str = ""
 
 
 def new_finding(target: str, title: str, status: str = OBSERVATION,
@@ -122,7 +148,11 @@ def load(assessment_dir: Path) -> list[Finding]:
     path = _store_file(assessment_dir)
     if not path.exists():
         return []
-    return [Finding(**d) for d in json.loads(path.read_text(encoding="utf-8"))]
+    known = {f.name for f in dataclasses.fields(Finding)}
+    out = []
+    for d in json.loads(path.read_text(encoding="utf-8")):
+        out.append(Finding(**{k: v for k, v in d.items() if k in known}))
+    return out
 
 
 def upsert(assessment_dir: Path, finding: Finding) -> None:
