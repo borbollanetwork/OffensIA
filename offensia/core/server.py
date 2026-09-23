@@ -7,16 +7,21 @@ neutral offensia_* tools. Safety is enforced here in code, not by prompt.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from offensia.adapters.execution import primary as execp
 from offensia.adapters.recon import primary as reconp
 from offensia.core import coverage as cov
 from offensia.core import evidence as ev_mod
+from offensia.core import executor as _executor
 from offensia.core import finding as fnd
 from offensia.core import ledger as ledger_mod
 from offensia.core import scope as scope_mod
 from offensia.core import untrusted
 from offensia.core import validation as val
+from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
+from offensia.core.jobs import ExecutionJob
 from offensia.reporting import generator as report_gen
 
 try:
@@ -36,6 +41,10 @@ except Exception:  # noqa: BLE001 — safe degradation if mcp not installed
 
 PATHS = get_paths()
 mcp = FastMCP("offensia")
+
+REGISTRY = CapabilityRegistry()
+REGISTRY.bind("execution_primary", execp)
+REGISTRY.bind("recon_primary", reconp)
 
 
 def _adir(assessment_id: str):
@@ -115,13 +124,29 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     return _record(assessment, target, res, "port_scan")
 
 
+def _run_via_registry(job: ExecutionJob) -> dict:
+    """Resolve the capability to an adapter and invoke it with the job's argv.
+    Kept as a module function so tests can substitute it."""
+    cap = REGISTRY.get(job.capability)          # raises KeyError if unknown
+    adapter: Any = REGISTRY.resolve(job.capability)  # raises LookupError if unbound
+    target = job.targets[0] if job.targets else ""
+    command = " ".join([job.tool_id, *[str(a) for a in job.argv]])
+    if cap.category == "recon":
+        return adapter.fetch(target, "md")
+    return adapter.run_command(target, command)
+
+
 @mcp.tool()
-def offensia_exec(target: str, command: str, assessment: str = "default") -> dict:
-    """Run one deterministic tool command (capability: generic.command)."""
-    if not scope_mod.in_scope(target, PATHS.scope_file):
-        return _scope_error(target, assessment)
-    res = execp.run_command(target, command)
-    return _record(assessment, target, res, "exec")
+def offensia_run_job(job: dict, assessment: str = "default") -> dict:
+    """Run a validated, typed ExecutionJob (scope + availability + destruction guards
+    enforced) serially through the executor. Replaces offensia_exec."""
+    try:
+        ej = ExecutionJob(**job)
+    except TypeError as exc:
+        return {"status": "refused", "reason": "BAD_JOB", "detail": str(exc)}
+    return _executor.run_job(_adir(assessment), ej, scope_file=PATHS.scope_file,
+                             runner=_run_via_registry,
+                             health_probe=lambda t: True)
 
 
 # ----------------------------------------------------------------- finding tools
