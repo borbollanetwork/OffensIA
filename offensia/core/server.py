@@ -22,6 +22,8 @@ from offensia.core import validation as val
 from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
 from offensia.core.jobs import TOOL_SPECS, ExecutionJob
+from offensia.core.oracles import authorization, file_read, http_differential, oast  # noqa: F401
+from offensia.core.oracles import base as oracles
 from offensia.reporting import generator as report_gen
 
 try:
@@ -143,6 +145,76 @@ def offensia_run_job(job: dict, assessment: str = "default") -> dict:
                              health_probe=lambda t: True)
 
 
+def _exp_job(exp: dict, argv: list, identity: dict | None) -> ExecutionJob:
+    return ExecutionJob(
+        capability=exp["capability"], tool_id=exp["tool_id"],
+        argv=list(argv), targets=[exp["target"]],
+        expected_oracle=exp.get("expected_oracle", "none"),
+        request_cap=exp.get("request_cap", 20), rate=exp.get("rate", 5),
+        timeout=exp.get("timeout", 30), identity_context=identity or {})
+
+
+def _run_leg(adir, exp: dict, argv: list, identity: dict | None) -> tuple[dict, dict]:
+    job = _exp_job(exp, argv, identity)
+    res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
+                            runner=_run_via_registry, health_probe=lambda t: True)
+    raw = b""
+    if res.get("evidence_id"):
+        raw = ev_mod.load(adir, _sha_for(adir, res["evidence_id"])) or b""
+    return res, {"ok": res.get("status") == "completed",
+                 "raw": raw.decode("utf-8", errors="replace"),
+                 "evidence_id": res.get("evidence_id")}
+
+
+@mcp.tool()
+def offensia_run_experiment(experiment: dict, assessment: str = "default") -> dict:
+    """Run a typed experiment (baseline/candidate/negative-control) serially and
+    evaluate it with the named semantic oracle. Returns a structured verdict —
+    the model never sets the verdict itself."""
+    target = experiment.get("target", "")
+    if not scope_mod.in_scope(target, PATHS.scope_file):
+        return _scope_error(target, assessment)
+    oracle_name = experiment.get("expected_oracle", "")
+    if oracle_name not in oracles.available():
+        return {"ok": False, "error": "UNKNOWN_ORACLE", "message": oracle_name}
+    adir = _adir(assessment)
+    job_results: dict = {}
+    refs: list = []
+    legs = [("candidate", experiment["candidate_argv"], experiment.get("candidate_identity")
+             or experiment.get("identity"))]
+    if experiment.get("baseline_argv"):
+        legs.insert(0, ("baseline", experiment["baseline_argv"], experiment.get("identity")))
+    if experiment.get("negative_argv"):
+        legs.append(("negative_control", experiment["negative_argv"],
+                     experiment.get("negative_identity") or experiment.get("identity")))
+    normalized: dict = {}
+    for name, argv, ident in legs:
+        raw_res, norm = _run_leg(adir, experiment, argv, ident)
+        job_results[name] = raw_res
+        normalized[name] = norm
+        if norm.get("evidence_id"):
+            refs.append(norm["evidence_id"])
+    ctx = oracles.OracleContext(
+        target=target, baseline=normalized.get("baseline"),
+        candidate=normalized.get("candidate"),
+        negative_control=normalized.get("negative_control"),
+        identity=experiment.get("identity", {}), canary=experiment.get("canary", ""),
+        correlation_id=experiment.get("correlation_id", ""), evidence_refs=refs)
+    verdict = oracles.get(oracle_name).evaluate(ctx)
+    ctx_ref = ev_mod.store(adir, str({"oracle": oracle_name, "verdict": verdict.verdict,
+                                      "rationale": verdict.rationale}), kind="experiment")
+    event = ledger_mod.append(adir, {"kind": "experiment", "action": "run_experiment",
+                                     "target": target, "oracle": oracle_name,
+                                     "verdict": verdict.verdict,
+                                     "evidence_id": ctx_ref.evidence_id})
+    return {"ok": True, "experiment_id": event["event_id"],
+            "status": "completed", "oracle_verdict": verdict.verdict,
+            "confidence": verdict.confidence, "reproduced": verdict.reproduced,
+            "rationale": verdict.rationale,
+            "evidence_refs": refs + [ctx_ref.evidence_id],
+            "job_results": {k: v.get("status") for k, v in job_results.items()}}
+
+
 # ----------------------------------------------------------------- finding tools
 @mcp.tool()
 def offensia_finding_create(target: str, title: str, evidence_id: str,
@@ -164,13 +236,18 @@ def offensia_finding_create(target: str, title: str, evidence_id: str,
 
 
 @mcp.tool()
-def offensia_validate_finding(target: str, finding_id: str, checks: list,
+def offensia_validate_finding(target: str, finding_id: str, checks: list | None = None,
                               target_status: str = "VALIDATED",
-                              assessment: str = "default") -> dict:
+                              assessment: str = "default",
+                              experiment: dict | None = None) -> dict:
     """Run validation checks and promote a finding only if policy is satisfied.
 
     ``checks`` is a list of {name, command, expect} dicts. Promotion to VALIDATED/
     EXPLOITABLE/CONFIRMED_IMPACT is code-enforced from the checks that actually pass.
+
+    When ``experiment`` is supplied (same shape as ``offensia_run_experiment``),
+    it is run instead and the resulting oracle verdict — never a model-set
+    verdict — drives promotion via ``finding.promote_from_verdict``.
     """
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
@@ -178,6 +255,29 @@ def offensia_validate_finding(target: str, finding_id: str, checks: list,
     findings = {f.finding_id: f for f in fnd.load(adir)}
     if finding_id not in findings:
         return {"ok": False, "error": "NO_SUCH_FINDING"}
+    if experiment is not None:
+        exp = dict(experiment)
+        exp.setdefault("target", target)
+        exp_res = offensia_run_experiment(exp, assessment=assessment)
+        if not exp_res.get("ok"):
+            return exp_res
+        v = oracles.OracleVerdict(
+            reproduced=exp_res["reproduced"], verdict=exp_res["oracle_verdict"],
+            confidence=exp_res["confidence"], rationale=exp_res["rationale"],
+            negative_control_used=bool(experiment.get("negative_argv")),
+            evidence_refs=exp_res["evidence_refs"])
+        try:
+            f = fnd.promote_from_verdict(findings[finding_id], target_status,
+                                         exp["expected_oracle"], v,
+                                         validation_event_id=exp_res["experiment_id"])
+        except fnd.PromotionError as exc:
+            fnd.upsert(adir, findings[finding_id])
+            return {"ok": False, "error": "NOT_PROMOTED", "verdict": v.verdict,
+                    "confidence": v.confidence, "message": str(exc)}
+        fnd.upsert(adir, f)
+        return {"ok": True, "finding_id": finding_id, "status": f.status,
+                "verdict": v.verdict, "experiment_id": exp_res["experiment_id"]}
+    checks = checks or []
     check_objs = [val.Check(name=c.get("name", ""), command=c.get("command", ""),
                             expect=c.get("expect", "success")) for c in checks]
     report = val.run_checks(target, check_objs, runner=execp.run_command)
