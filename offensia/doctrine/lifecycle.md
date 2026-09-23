@@ -18,7 +18,7 @@ CORRELATE -> EXPAND -> REPORT
    the relevant coverage families.
 3. **HYPOTHESIZE** — derive testable hypotheses from the surface model, each with
    preconditions and the evidence that would confirm or refute it.
-4. **TEST** — execute deterministic checks (`offensia_exec`). Capture raw output as
+4. **TEST** — execute deterministic checks (`offensia_run_job`). Capture raw output as
    evidence.
 5. **VALIDATE** — challenge every hypothesis with reproduction and negative
    controls. Promotion to VALIDATED/EXPLOITABLE/CONFIRMED_IMPACT is code-enforced.
