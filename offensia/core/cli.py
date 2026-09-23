@@ -192,10 +192,13 @@ def cmd_engines_status(args) -> int:
 
 def cmd_engines_up(args) -> int:
     from offensia.core import engine_ops
-    results = engine_ops.up_all(get_paths(), wait=args.wait)
+    results = engine_ops.up_all(get_paths(), wait=args.wait,
+                                docker_only=getattr(args, "docker_only", False))
     if not results:
-        print("no engines in deps/engines.yaml manifest")
-        return 1
+        print("no engines to start"
+              + (" (docker-only)" if getattr(args, "docker_only", False) else
+                 " in deps/engines.yaml manifest"))
+        return 0 if getattr(args, "docker_only", False) else 1
     bad = 0
     for r in results:
         if r["status"] not in ("up", "already_up"):
@@ -268,6 +271,8 @@ def build_parser() -> argparse.ArgumentParser:
     ep = sub.add_parser("engines"); eps = ep.add_subparsers(dest="ecmd", required=True)
     eps.add_parser("status").set_defaults(func=cmd_engines_status)
     eup = eps.add_parser("up"); eup.add_argument("--wait", type=int, default=30)
+    eup.add_argument("--docker-only", dest="docker_only", action="store_true",
+                     help="start only Docker-based engines (skip heavy pip engines)")
     eup.set_defaults(func=cmd_engines_up)
     eps.add_parser("down").set_defaults(func=cmd_engines_down)
 

@@ -131,26 +131,31 @@ for eng in data.get("engines", []):
 PY
 
 # ----------------------------------------------------- 4. bring the stack up
+# Only Docker-based engines are started automatically. Heavy pip engines (which may
+# not build on every Python) are left to an explicit `offensia engines up`.
 step "Start engine stack"
-if command -v docker >/dev/null; then
+if [ "${OFFENSIA_SKIP_ENGINE_START:-0}" = "1" ]; then
+  warn "engine start skipped (OFFENSIA_SKIP_ENGINE_START=1)"
+elif command -v docker >/dev/null; then
   if docker_ready; then
-    python3 -m offensia.core.cli engines up --wait 40 | sed 's/^/  /' || warn "some engines did not come up (see above)"
+    python3 -m offensia.core.cli engines up --docker-only --wait 60 | sed 's/^/  /' || warn "some engines did not come up (see above)"
   else
     # Docker present but this shell lacks daemon access (fresh group membership).
     SUDO="$(sudo_prefix || true)"
     if [ -n "$SUDO" ] && $SUDO docker info >/dev/null 2>&1; then
       warn "using sudo for Docker this run (group 'docker' active after next login)"
       $SUDO env "PATH=$PATH" "OFFENSIA_BASE=$OFFENSIA_BASE" \
-        python3 -m offensia.core.cli engines up --wait 40 | sed 's/^/  /' \
+        python3 -m offensia.core.cli engines up --docker-only --wait 60 | sed 's/^/  /' \
         || warn "some engines did not come up (see above)"
     else
       warn "Docker installed but not usable in this shell yet. Log out/in (or run 'newgrp docker'), then:"
-      info "./offensia engines up"
+      info "./start.sh"
     fi
   fi
+  info "pip-based engines (if any) start on demand: ./offensia engines up"
 else
   warn "docker unavailable — skipping Docker engines. The reference engine can stand in:"
-  info "python -m offensia.engines.reference_engine"
+  info "./start.sh --reference"
 fi
 
 # ------------------------------------------------------- 5. configuration

@@ -130,8 +130,11 @@ def stop_engine(paths: Paths, eng: dict) -> dict:
     return {"name": name, "status": "not_running", "detail": ""}
 
 
-def up_all(paths: Paths, wait: int = 30) -> list[dict]:
-    return [start_engine(paths, eng, wait) for eng in load_engines(paths)]
+def up_all(paths: Paths, wait: int = 30, docker_only: bool = False) -> list[dict]:
+    engines = load_engines(paths)
+    if docker_only:
+        engines = [e for e in engines if _is_docker(e)]
+    return [start_engine(paths, eng, wait) for eng in engines]
 
 
 def down_all(paths: Paths) -> list[dict]:
