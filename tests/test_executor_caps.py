@@ -46,5 +46,5 @@ def test_budget_snapshot_persisted(tmp_path):
     executor.run_job(tmp_path / "a", _job(), scope_file=_scope(tmp_path),
                      runner=runner, health_probe=lambda t: True)
     import json
-    state = json.loads((tmp_path / "a" / "state.json").read_text())
-    assert state["budget_consumed"]["requests_made"] == 1
+    ckpt = json.loads((tmp_path / "a" / "executor-checkpoint.json").read_text())
+    assert ckpt["budget_consumed"]["requests_made"] == 1
