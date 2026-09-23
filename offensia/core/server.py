@@ -21,7 +21,7 @@ from offensia.core import untrusted
 from offensia.core import validation as val
 from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
-from offensia.core.jobs import ExecutionJob
+from offensia.core.jobs import TOOL_SPECS, ExecutionJob
 from offensia.reporting import generator as report_gen
 
 try:
@@ -62,25 +62,6 @@ def _scope_error(target: str, assessment_id: str) -> dict:
                         "authorization. Nothing was executed.")}
 
 
-def _record(assessment_id: str, target: str, res: dict, kind: str) -> dict:
-    """Store raw output as evidence and append a ledger event; attach references."""
-    adir = _adir(assessment_id)
-    ev_ref = None
-    if res.get("raw"):
-        ref = ev_mod.store(adir, res["raw"], kind=kind)
-        ev_ref = ref.evidence_id
-        res["evidence_id"] = ref.evidence_id
-        res["evidence_sha256"] = ref.sha256
-    event = ledger_mod.append(adir, {
-        "kind": kind, "action": res.get("action", kind), "target": target,
-        "normalized_target": scope_mod.normalize(target).host,
-        "capability": kind, "ok": res.get("ok"), "summary": res.get("summary", ""),
-        "evidence_id": ev_ref, "bounded": res.get("bounded", False),
-        "error": res.get("error")})
-    res["ledger_ref"] = event["event_id"]
-    return res
-
-
 # ------------------------------------------------------------------- scope tools
 @mcp.tool()
 def offensia_scope_list() -> dict:
@@ -105,10 +86,15 @@ def offensia_recon_crawl(target: str, mode: str = "md", assessment: str = "defau
     Returns UNTRUSTED data fenced for the model; stores raw as evidence."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
-    res = reconp.fetch(target, mode)
-    res = _record(assessment, target, res, "recon")
-    if res.get("ok"):
-        wrapped = untrusted.wrap(target, res.get("raw", ""))
+    job = ExecutionJob(capability="web.content_extract", tool_id="crawl4ai_ref",
+                       argv=[], targets=[target], expected_oracle="none")
+    res = _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
+                            runner=_run_via_registry, health_probe=lambda t: True)
+    res["ok"] = res.get("status") == "completed"
+    ev_id = res.get("evidence_id")
+    if ev_id:
+        raw = ev_mod.load(_adir(assessment), _sha_for(_adir(assessment), ev_id)) or b""
+        wrapped = untrusted.wrap(target, raw.decode("utf-8", errors="replace"))
         res["model_view"] = untrusted.render_for_model(wrapped)
         res["injection_suspected"] = wrapped.injection_suspected
     return res
@@ -119,21 +105,29 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     """Port scan a target (capability: network.port_scan)."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
-    cmd = f"nmap -sV {('-p ' + ports) if ports else ''} {scope_mod.normalize(target).host}".strip()
-    res = execp.run_command(target, cmd)
-    return _record(assessment, target, res, "port_scan")
+    argv = ["-sV", "-Pn"] + (["-p", ports] if ports else [])
+    job = ExecutionJob(capability="network.port_scan", tool_id="nmap",
+                       argv=argv, targets=[target], expected_oracle="none")
+    return _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
+                             runner=_run_via_registry, health_probe=lambda t: True)
 
 
 def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
-    """Resolve the capability to an adapter and invoke it with the job's argv.
-    Kept as a module function so tests can substitute it."""
+    """Resolve the capability to an adapter and invoke it with the job's argv (list
+    form; no shell string is ever built). Kept as a module function so tests can
+    substitute it."""
     cap = REGISTRY.get(job.capability)          # raises KeyError if unknown
     adapter: Any = REGISTRY.resolve(job.capability)  # raises LookupError if unbound
     target = job.targets[0] if job.targets else ""
-    command = " ".join([job.tool_id, *[str(a) for a in job.argv]])
     if cap.category == "recon":
+        if budget is not None:
+            budget.charge(target)
         return adapter.fetch(target, "md")
-    return adapter.run_command(target, command)
+    spec = TOOL_SPECS.get(job.tool_id)
+    argv = [job.tool_id, *[str(a) for a in job.argv]]
+    if spec is not None and spec.target_position == "append":
+        argv.append(scope_mod.normalize(target).host)
+    return adapter.run_argv(target, argv, budget=budget)
 
 
 @mcp.tool()

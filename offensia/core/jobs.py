@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from offensia.core.scope import in_scope
+from offensia.core.scope import in_scope, normalize
 
 DOS_RISK_CLASSES = {"dos", "availability_impact", "crash"}
 # Tokens that indicate a disruptive/availability-affecting action, matched
@@ -27,6 +27,9 @@ class ToolSpec:
     tool_id: str
     capability: str
     argv_allow: tuple  # regex patterns; each argv element must match one
+    # "append" = host appended as trailing argv from the scoped target;
+    # "inline" = target already inside argv (e.g. a URL).
+    target_position: str = "append"
 
 
 # Static tool registry. Extend as adapters grow. argv_allow patterns are anchored.
@@ -47,7 +50,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             r"-d",
             r"[A-Za-z0-9 _./:+=&%-]+",
         ),
+        target_position="inline",
     ),
+    "crawl4ai_ref": ToolSpec("crawl4ai_ref", "web.content_extract", (),
+                             target_position="inline"),
 }
 
 
@@ -161,6 +167,13 @@ def validate_job(job: ExecutionJob, scope_file: Path) -> None:
     # 4. argv allowlist
     if not _argv_allowed(job.argv, spec):
         raise JobRejected("ARGV_NOT_ALLOWED", " ".join(map(str, job.argv)))
+    # 4b. inline-target tools: every URL host in argv must be in scope (anti-SSRF)
+    if spec.target_position == "inline":
+        for tok in job.argv:
+            t = str(tok)
+            if t.startswith("http://") or t.startswith("https://"):
+                if not in_scope(normalize(t).host, scope_file):
+                    raise JobRejected("OUT_OF_SCOPE_URL", t)
     # 5. destruction guard — cleanup may only remove self-created artifacts
     for step in job.cleanup_plan:
         if step.get("action") in ("delete", "overwrite", "truncate") \
