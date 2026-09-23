@@ -43,3 +43,7 @@ Without Docker, the dependency-free reference engine can stand in:
 ```bash
 python -m offensia.engines.reference_engine
 ```
+
+## Docker auto-install
+
+If Docker is not found, `install.sh` installs Docker Engine using Docker's official convenience script (https://get.docker.com), enables the service, and adds your user to the `docker` group (effective after the next login). Requires root or `sudo`. Opt out with `OFFENSIA_SKIP_DOCKER=1 ./install.sh`.

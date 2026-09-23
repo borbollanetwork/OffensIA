@@ -28,6 +28,43 @@ warn()  { printf "  ${C_YELLOW}⚠${C_RESET} %s\n" "$1"; }
 err()   { printf "  ${C_RED}✗ %s${C_RESET}\n" "$1"; }
 info()  { printf "  ${C_DIM}%s${C_RESET}\n" "$1"; }
 
+# ------------------------------------------------------------- docker helpers
+# Return the sudo prefix needed to run privileged commands (empty if already root).
+sudo_prefix() {
+  if [ "$(id -u)" -eq 0 ]; then printf ''; return 0; fi
+  if command -v sudo >/dev/null; then printf 'sudo'; return 0; fi
+  return 1
+}
+
+docker_ready() { command -v docker >/dev/null && docker info >/dev/null 2>&1; }
+
+# Install Docker Engine using Docker's official convenience script (get.docker.com).
+# Honors OFFENSIA_SKIP_DOCKER=1 to opt out. Requires root or sudo, and curl.
+ensure_docker() {
+  if command -v docker >/dev/null; then ok "docker available"; return 0; fi
+  if [ "${OFFENSIA_SKIP_DOCKER:-0}" = "1" ]; then
+    warn "docker not found; auto-install skipped (OFFENSIA_SKIP_DOCKER=1)"; return 1
+  fi
+  warn "docker not found — installing Docker Engine via the official script (get.docker.com)"
+  local SUDO; if ! SUDO="$(sudo_prefix)"; then
+    err "need root or sudo to install Docker; re-run as root or set OFFENSIA_SKIP_DOCKER=1"; return 1
+  fi
+  if ! command -v curl >/dev/null; then err "curl is required to install Docker"; return 1; fi
+  local tmp; tmp="$(mktemp)"
+  info "downloading https://get.docker.com ..."
+  if ! curl -fsSL https://get.docker.com -o "$tmp"; then err "download failed"; rm -f "$tmp"; return 1; fi
+  if ! ${SUDO:+$SUDO }sh "$tmp"; then err "docker installation failed"; rm -f "$tmp"; return 1; fi
+  rm -f "$tmp"
+  ${SUDO:+$SUDO }systemctl enable --now docker >/dev/null 2>&1 || true
+  ${SUDO:+$SUDO }usermod -aG docker "${USER:-$(id -un)}" >/dev/null 2>&1 || true
+  if command -v docker >/dev/null; then
+    ok "Docker installed"
+    docker_ready || warn "Docker daemon/permissions not active for this shell yet — you may need to log out/in (or run: newgrp docker)"
+    return 0
+  fi
+  err "Docker still not found after install"; return 1
+}
+
 banner() {
   printf "${C_BOLD}${C_MAGENTA}"
   cat <<'BANNER'
@@ -53,7 +90,7 @@ if python3 -c 'import sys;exit(0 if sys.version_info>=(3,11) else 1)'; then
 else
   err "Python >=3.11 required (found $PYV)"; exit 1
 fi
-if command -v docker >/dev/null; then ok "docker available"; else warn "docker not found — Docker-based engines (recon) will be skipped"; fi
+ensure_docker || true   # auto-installs Docker if missing (opt out: OFFENSIA_SKIP_DOCKER=1)
 
 # ---------------------------------------------------------- 2. venv + package
 step "Virtualenv & package"
@@ -96,9 +133,23 @@ PY
 # ----------------------------------------------------- 4. bring the stack up
 step "Start engine stack"
 if command -v docker >/dev/null; then
-  python3 -m offensia.core.cli engines up --wait 40 | sed 's/^/  /' || warn "some engines did not come up (see above)"
+  if docker_ready; then
+    python3 -m offensia.core.cli engines up --wait 40 | sed 's/^/  /' || warn "some engines did not come up (see above)"
+  else
+    # Docker present but this shell lacks daemon access (fresh group membership).
+    SUDO="$(sudo_prefix || true)"
+    if [ -n "$SUDO" ] && $SUDO docker info >/dev/null 2>&1; then
+      warn "using sudo for Docker this run (group 'docker' active after next login)"
+      $SUDO env "PATH=$PATH" "OFFENSIA_BASE=$OFFENSIA_BASE" \
+        python3 -m offensia.core.cli engines up --wait 40 | sed 's/^/  /' \
+        || warn "some engines did not come up (see above)"
+    else
+      warn "Docker installed but not usable in this shell yet. Log out/in (or run 'newgrp docker'), then:"
+      info "./offensia engines up"
+    fi
+  fi
 else
-  warn "docker not found — skipping Docker engines. The reference engine can stand in:"
+  warn "docker unavailable — skipping Docker engines. The reference engine can stand in:"
   info "python -m offensia.engines.reference_engine"
 fi
 
