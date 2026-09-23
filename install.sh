@@ -38,28 +38,60 @@ sudo_prefix() {
 
 docker_ready() { command -v docker >/dev/null && docker info >/dev/null 2>&1; }
 
-# Install Docker Engine using Docker's official convenience script (get.docker.com).
-# Honors OFFENSIA_SKIP_DOCKER=1 to opt out. Requires root or sudo, and curl.
+# Detect the distro id (lowercased) from /etc/os-release, plus ID_LIKE.
+_distro_ids() {
+  local ID="" ID_LIKE=""
+  # shellcheck disable=SC1091
+  [ -r /etc/os-release ] && . /etc/os-release
+  printf '%s %s' "${ID:-}" "${ID_LIKE:-}" | tr '[:upper:]' '[:lower:]'
+}
+
+# Install docker + compose from the distribution repository (works on Kali, where
+# Docker publishes no apt repo, and as a fallback on Debian/Ubuntu).
+_install_docker_apt() {
+  local SUDO="$1"
+  command -v apt-get >/dev/null || { err "apt-get not found; install Docker manually"; return 1; }
+  ${SUDO:+$SUDO }apt-get update -qq || true
+  ${SUDO:+$SUDO }apt-get install -y -qq docker.io docker-compose >/dev/null 2>&1 \
+    || ${SUDO:+$SUDO }apt-get install -y -qq docker.io >/dev/null 2>&1
+  command -v docker >/dev/null
+}
+
+# Install Docker. Kali -> distro package (docker.io); Debian/Ubuntu -> official
+# convenience script (get.docker.com) with apt fallback. Opt out: OFFENSIA_SKIP_DOCKER=1.
 ensure_docker() {
   if command -v docker >/dev/null; then ok "docker available"; return 0; fi
   if [ "${OFFENSIA_SKIP_DOCKER:-0}" = "1" ]; then
     warn "docker not found; auto-install skipped (OFFENSIA_SKIP_DOCKER=1)"; return 1
   fi
-  warn "docker not found — installing Docker Engine via the official script (get.docker.com)"
   local SUDO; if ! SUDO="$(sudo_prefix)"; then
     err "need root or sudo to install Docker; re-run as root or set OFFENSIA_SKIP_DOCKER=1"; return 1
   fi
-  if ! command -v curl >/dev/null; then err "curl is required to install Docker"; return 1; fi
-  local tmp; tmp="$(mktemp)"
-  info "downloading https://get.docker.com ..."
-  if ! curl -fsSL https://get.docker.com -o "$tmp"; then err "download failed"; rm -f "$tmp"; return 1; fi
-  if ! ${SUDO:+$SUDO }sh "$tmp"; then err "docker installation failed"; rm -f "$tmp"; return 1; fi
-  rm -f "$tmp"
+  local ids; ids="$(_distro_ids)"
+  if printf '%s' "$ids" | grep -q "kali"; then
+    warn "docker not found — Kali detected; installing docker.io from the distro repository"
+    _install_docker_apt "$SUDO" || { err "docker installation failed (apt docker.io)"; return 1; }
+  else
+    warn "docker not found — installing Docker Engine via the official script (get.docker.com)"
+    if command -v curl >/dev/null; then
+      local tmp; tmp="$(mktemp)"
+      info "downloading https://get.docker.com ..."
+      if curl -fsSL https://get.docker.com -o "$tmp" && ${SUDO:+$SUDO }sh "$tmp"; then
+        rm -f "$tmp"
+      else
+        rm -f "$tmp"
+        warn "convenience script failed — falling back to distro package (docker.io)"
+        _install_docker_apt "$SUDO" || { err "docker installation failed"; return 1; }
+      fi
+    else
+      _install_docker_apt "$SUDO" || { err "docker installation failed"; return 1; }
+    fi
+  fi
   ${SUDO:+$SUDO }systemctl enable --now docker >/dev/null 2>&1 || true
   ${SUDO:+$SUDO }usermod -aG docker "${USER:-$(id -un)}" >/dev/null 2>&1 || true
   if command -v docker >/dev/null; then
     ok "Docker installed"
-    docker_ready || warn "Docker daemon/permissions not active for this shell yet — you may need to log out/in (or run: newgrp docker)"
+    docker_ready || warn "Docker daemon/permissions not active for this shell yet — log out/in (or run: newgrp docker)"
     return 0
   fi
   err "Docker still not found after install"; return 1
