@@ -36,6 +36,32 @@ def run_command(target: str, command: str, use_cache: bool = True) -> dict:
                   summary=f"rc={data.get('return_code')} success={data.get('success')}")
 
 
+def run_argv(target: str, argv: list, budget=None, timeout: float | None = None) -> dict:
+    """Run a tool by argv list — no shell string is ever built. The engine execs
+    the list with shell=False. `budget.charge(target)` is applied first when given."""
+    s = settings()
+    if budget is not None:
+        from offensia.core.budget import CapExceeded
+        try:
+            budget.charge(target)
+        except CapExceeded as exc:
+            raise exc
+    try:
+        resp = requests.post(  # nosec B113 — timeout set below
+            f"{s['execution_url']}/api/command",
+            json={"argv": [str(a) for a in argv], "use_cache": False},
+            timeout=timeout or s["http_timeout"],
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001 — must not crash the MCP layer
+        return result(False, target, "exec", error=f"{type(exc).__name__}: {exc}")
+    raw, bounded = bound_output(str(data.get("stdout", "")), s["http_max_bytes"])
+    succeeded = bool(data.get("success")) and int(data.get("return_code", 0) or 0) == 0
+    return result(succeeded, target, "exec", raw=raw, bounded=bounded,
+                  summary=f"rc={data.get('return_code')} success={data.get('success')}")
+
+
 def health() -> dict:
     s = settings()
     try:

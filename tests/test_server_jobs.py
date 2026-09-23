@@ -28,7 +28,7 @@ def test_run_job_in_scope_runs(srv, monkeypatch):
     srv.offensia_scope_add("example.com", "LAB")
     # make the resolved adapter deterministic
     monkeypatch.setattr(srv, "_run_via_registry",
-                        lambda job: {"ok": True, "raw": "HTTP/1.1 200 OK evidence body"})
+                        lambda job, budget: {"ok": True, "raw": "HTTP/1.1 200 OK evidence body"})
     job = {"capability": "web.http_probe", "tool_id": "generic_http",
            "argv": ["http://example.com"], "targets": ["example.com"]}
     out = srv.offensia_run_job(job, assessment="a")

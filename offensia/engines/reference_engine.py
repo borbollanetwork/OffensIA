@@ -41,6 +41,19 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
+def _exec_argv(argv: list, timeout: float = CMD_TIMEOUT) -> dict:
+    """Run argv list-form, shell=False — no shell string is ever built."""
+    try:
+        proc = subprocess.run(argv, shell=False, capture_output=True,  # nosec B603 — list-form, no shell
+                              text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"stdout": "", "stderr": "timeout", "return_code": 124, "success": False}
+    except (FileNotFoundError, OSError) as exc:
+        return {"stdout": "", "stderr": str(exc), "return_code": 127, "success": False}
+    return {"stdout": proc.stdout, "stderr": proc.stderr,
+            "return_code": proc.returncode, "success": proc.returncode == 0}
+
+
 class _Handler(BaseHTTPRequestHandler):
     role = "exec"
 
@@ -74,6 +87,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def _exec(self, data: dict):
+        if isinstance(data.get("argv"), list):
+            return self._send(200, _exec_argv([str(a) for a in data["argv"]],
+                                               timeout=data.get("timeout", CMD_TIMEOUT)))
         command = str(data.get("command", "")).strip()
         if not command:
             return self._send(400, {"error": "empty command"})

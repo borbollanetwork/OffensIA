@@ -21,7 +21,9 @@ from offensia.core import untrusted
 from offensia.core import validation as val
 from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
-from offensia.core.jobs import ExecutionJob
+from offensia.core.jobs import TOOL_SPECS, ExecutionJob
+from offensia.core.oracles import authorization, file_read, http_differential, oast  # noqa: F401
+from offensia.core.oracles import base as oracles
 from offensia.reporting import generator as report_gen
 
 try:
@@ -62,25 +64,6 @@ def _scope_error(target: str, assessment_id: str) -> dict:
                         "authorization. Nothing was executed.")}
 
 
-def _record(assessment_id: str, target: str, res: dict, kind: str) -> dict:
-    """Store raw output as evidence and append a ledger event; attach references."""
-    adir = _adir(assessment_id)
-    ev_ref = None
-    if res.get("raw"):
-        ref = ev_mod.store(adir, res["raw"], kind=kind)
-        ev_ref = ref.evidence_id
-        res["evidence_id"] = ref.evidence_id
-        res["evidence_sha256"] = ref.sha256
-    event = ledger_mod.append(adir, {
-        "kind": kind, "action": res.get("action", kind), "target": target,
-        "normalized_target": scope_mod.normalize(target).host,
-        "capability": kind, "ok": res.get("ok"), "summary": res.get("summary", ""),
-        "evidence_id": ev_ref, "bounded": res.get("bounded", False),
-        "error": res.get("error")})
-    res["ledger_ref"] = event["event_id"]
-    return res
-
-
 # ------------------------------------------------------------------- scope tools
 @mcp.tool()
 def offensia_scope_list() -> dict:
@@ -105,10 +88,15 @@ def offensia_recon_crawl(target: str, mode: str = "md", assessment: str = "defau
     Returns UNTRUSTED data fenced for the model; stores raw as evidence."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
-    res = reconp.fetch(target, mode)
-    res = _record(assessment, target, res, "recon")
-    if res.get("ok"):
-        wrapped = untrusted.wrap(target, res.get("raw", ""))
+    job = ExecutionJob(capability="web.content_extract", tool_id="crawl4ai_ref",
+                       argv=[], targets=[target], expected_oracle="none")
+    res = _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
+                            runner=_run_via_registry, health_probe=lambda t: True)
+    res["ok"] = res.get("status") == "completed"
+    ev_id = res.get("evidence_id")
+    if ev_id:
+        raw = ev_mod.load(_adir(assessment), _sha_for(_adir(assessment), ev_id)) or b""
+        wrapped = untrusted.wrap(target, raw.decode("utf-8", errors="replace"))
         res["model_view"] = untrusted.render_for_model(wrapped)
         res["injection_suspected"] = wrapped.injection_suspected
     return res
@@ -119,21 +107,29 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     """Port scan a target (capability: network.port_scan)."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
-    cmd = f"nmap -sV {('-p ' + ports) if ports else ''} {scope_mod.normalize(target).host}".strip()
-    res = execp.run_command(target, cmd)
-    return _record(assessment, target, res, "port_scan")
+    argv = ["-sV", "-Pn"] + (["-p", ports] if ports else [])
+    job = ExecutionJob(capability="network.port_scan", tool_id="nmap",
+                       argv=argv, targets=[target], expected_oracle="none")
+    return _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
+                             runner=_run_via_registry, health_probe=lambda t: True)
 
 
-def _run_via_registry(job: ExecutionJob) -> dict:
-    """Resolve the capability to an adapter and invoke it with the job's argv.
-    Kept as a module function so tests can substitute it."""
+def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
+    """Resolve the capability to an adapter and invoke it with the job's argv (list
+    form; no shell string is ever built). Kept as a module function so tests can
+    substitute it."""
     cap = REGISTRY.get(job.capability)          # raises KeyError if unknown
     adapter: Any = REGISTRY.resolve(job.capability)  # raises LookupError if unbound
     target = job.targets[0] if job.targets else ""
-    command = " ".join([job.tool_id, *[str(a) for a in job.argv]])
     if cap.category == "recon":
+        if budget is not None:
+            budget.charge(target)
         return adapter.fetch(target, "md")
-    return adapter.run_command(target, command)
+    spec = TOOL_SPECS.get(job.tool_id)
+    argv = [job.tool_id, *[str(a) for a in job.argv]]
+    if spec is not None and spec.target_position == "append":
+        argv.append(scope_mod.normalize(target).host)
+    return adapter.run_argv(target, argv, budget=budget)
 
 
 @mcp.tool()
@@ -147,6 +143,92 @@ def offensia_run_job(job: dict, assessment: str = "default") -> dict:
     return _executor.run_job(_adir(assessment), ej, scope_file=PATHS.scope_file,
                              runner=_run_via_registry,
                              health_probe=lambda t: True)
+
+
+def _exp_job(exp: dict, argv: list, identity: dict | None) -> ExecutionJob:
+    return ExecutionJob(
+        capability=exp["capability"], tool_id=exp["tool_id"],
+        argv=list(argv), targets=[exp["target"]],
+        expected_oracle=exp.get("expected_oracle", "none"),
+        request_cap=exp.get("request_cap", 20), rate=exp.get("rate", 5),
+        timeout=exp.get("timeout", 30), identity_context=identity or {})
+
+
+def _run_leg(adir, exp: dict, argv: list, identity: dict | None) -> tuple[dict, dict]:
+    job = _exp_job(exp, argv, identity)
+    res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
+                            runner=_run_via_registry, health_probe=lambda t: True)
+    raw = b""
+    if res.get("evidence_id"):
+        raw = ev_mod.load(adir, _sha_for(adir, res["evidence_id"])) or b""
+    norm = {"ok": res.get("status") == "completed",
+            "raw": raw.decode("utf-8", errors="replace"),
+            "evidence_id": res.get("evidence_id")}
+    # Only forward oast_events when the leg's raw result actually carries them —
+    # an unconditional [] default would shadow OASTOracle's collector fallback.
+    if "oast_events" in res:
+        norm["oast_events"] = res["oast_events"]
+    return res, norm
+
+
+@mcp.tool()
+def offensia_run_experiment(experiment: dict, assessment: str = "default") -> dict:
+    """Run a typed experiment (baseline/candidate/negative-control) serially and
+    evaluate it with the named semantic oracle. Returns a structured verdict —
+    the model never sets the verdict itself."""
+    target = experiment.get("target", "")
+    if not scope_mod.in_scope(target, PATHS.scope_file):
+        return _scope_error(target, assessment)
+    for required in ("capability", "tool_id", "target", "candidate_argv"):
+        if not experiment.get(required):
+            return {"ok": False, "error": "BAD_EXPERIMENT", "detail": required}
+    oracle_name = experiment.get("expected_oracle", "")
+    if oracle_name not in oracles.available():
+        return {"ok": False, "error": "UNKNOWN_ORACLE", "message": oracle_name}
+    adir = _adir(assessment)
+    job_results: dict = {}
+    refs: list = []
+    legs = [("candidate", experiment["candidate_argv"], experiment.get("candidate_identity")
+             or experiment.get("identity"))]
+    if experiment.get("baseline_argv"):
+        legs.insert(0, ("baseline", experiment["baseline_argv"], experiment.get("identity")))
+    if experiment.get("negative_argv"):
+        legs.append(("negative_control", experiment["negative_argv"],
+                     experiment.get("negative_identity") or experiment.get("identity")))
+    normalized: dict = {}
+    for name, argv, ident in legs:
+        raw_res, norm = _run_leg(adir, experiment, argv, ident)
+        job_results[name] = raw_res
+        normalized[name] = norm
+        if norm.get("evidence_id"):
+            refs.append(norm["evidence_id"])
+    identity = dict(experiment.get("identity", {}))
+    correlation_id = experiment.get("correlation_id", "")
+    if oracle_name == "oast":
+        collector = oast.OASTCollector(adir)
+        correlation_id = correlation_id or collector.token()
+        identity["_collector"] = collector
+    ctx = oracles.OracleContext(
+        target=target, baseline=normalized.get("baseline"),
+        candidate=normalized.get("candidate"),
+        negative_control=normalized.get("negative_control"),
+        identity=identity, canary=experiment.get("canary", ""),
+        correlation_id=correlation_id, evidence_refs=refs)
+    verdict = oracles.get(oracle_name).evaluate(ctx)
+    ctx_ref = ev_mod.store(adir, str({"oracle": oracle_name, "verdict": verdict.verdict,
+                                      "rationale": verdict.rationale}), kind="experiment")
+    event = ledger_mod.append(adir, {"kind": "experiment", "action": "run_experiment",
+                                     "target": target, "oracle": oracle_name,
+                                     "verdict": verdict.verdict,
+                                     "evidence_id": ctx_ref.evidence_id})
+    return {"ok": True, "experiment_id": event["event_id"],
+            "status": "completed", "oracle_verdict": verdict.verdict,
+            "confidence": verdict.confidence, "reproduced": verdict.reproduced,
+            "rationale": verdict.rationale,
+            "negative_control_used": verdict.negative_control_used,
+            "correlation_id": correlation_id,
+            "evidence_refs": refs + [ctx_ref.evidence_id],
+            "job_results": {k: v.get("status") for k, v in job_results.items()}}
 
 
 # ----------------------------------------------------------------- finding tools
@@ -170,13 +252,18 @@ def offensia_finding_create(target: str, title: str, evidence_id: str,
 
 
 @mcp.tool()
-def offensia_validate_finding(target: str, finding_id: str, checks: list,
+def offensia_validate_finding(target: str, finding_id: str, checks: list | None = None,
                               target_status: str = "VALIDATED",
-                              assessment: str = "default") -> dict:
+                              assessment: str = "default",
+                              experiment: dict | None = None) -> dict:
     """Run validation checks and promote a finding only if policy is satisfied.
 
     ``checks`` is a list of {name, command, expect} dicts. Promotion to VALIDATED/
     EXPLOITABLE/CONFIRMED_IMPACT is code-enforced from the checks that actually pass.
+
+    When ``experiment`` is supplied (same shape as ``offensia_run_experiment``),
+    it is run instead and the resulting oracle verdict — never a model-set
+    verdict — drives promotion via ``finding.promote_from_verdict``.
     """
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
@@ -184,6 +271,29 @@ def offensia_validate_finding(target: str, finding_id: str, checks: list,
     findings = {f.finding_id: f for f in fnd.load(adir)}
     if finding_id not in findings:
         return {"ok": False, "error": "NO_SUCH_FINDING"}
+    if experiment is not None:
+        exp = dict(experiment)
+        exp.setdefault("target", target)
+        exp_res = offensia_run_experiment(exp, assessment=assessment)
+        if not exp_res.get("ok"):
+            return exp_res
+        v = oracles.OracleVerdict(
+            reproduced=exp_res["reproduced"], verdict=exp_res["oracle_verdict"],
+            confidence=exp_res["confidence"], rationale=exp_res["rationale"],
+            negative_control_used=exp_res["negative_control_used"],
+            evidence_refs=exp_res["evidence_refs"])
+        try:
+            f = fnd.promote_from_verdict(findings[finding_id], target_status,
+                                         exp["expected_oracle"], v,
+                                         validation_event_id=exp_res["experiment_id"])
+        except fnd.PromotionError as exc:
+            fnd.upsert(adir, findings[finding_id])
+            return {"ok": False, "error": "NOT_PROMOTED", "verdict": v.verdict,
+                    "confidence": v.confidence, "message": str(exc)}
+        fnd.upsert(adir, f)
+        return {"ok": True, "finding_id": finding_id, "status": f.status,
+                "verdict": v.verdict, "experiment_id": exp_res["experiment_id"]}
+    checks = checks or []
     check_objs = [val.Check(name=c.get("name", ""), command=c.get("command", ""),
                             expect=c.get("expect", "success")) for c in checks]
     report = val.run_checks(target, check_objs, runner=execp.run_command)
