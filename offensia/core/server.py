@@ -12,6 +12,7 @@ from typing import Any
 from offensia.adapters.execution import primary as execp
 from offensia.adapters.recon import primary as reconp
 from offensia.core import coverage as cov
+from offensia.core import digest as digest_mod
 from offensia.core import evidence as ev_mod
 from offensia.core import executor as _executor
 from offensia.core import finding as fnd
@@ -51,6 +52,14 @@ REGISTRY.bind("recon_primary", reconp)
 
 def _adir(assessment_id: str):
     return PATHS.assessment_dir(assessment_id)
+
+
+def _attach_digest(adir, res: dict, kind: str) -> dict:
+    ev_id = res.get("evidence_id")
+    if ev_id:
+        raw = ev_mod.load(adir, _sha_for(adir, ev_id)) or b""
+        res["digest"] = digest_mod.summarize(kind, raw)
+    return res
 
 
 def _scope_error(target: str, assessment_id: str) -> dict:
@@ -93,12 +102,23 @@ def offensia_recon_crawl(target: str, mode: str = "md", assessment: str = "defau
     res = _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
                             runner=_run_via_registry, health_probe=lambda t: True)
     res["ok"] = res.get("status") == "completed"
+    adir = _adir(assessment)
     ev_id = res.get("evidence_id")
     if ev_id:
-        raw = ev_mod.load(_adir(assessment), _sha_for(_adir(assessment), ev_id)) or b""
-        wrapped = untrusted.wrap(target, raw.decode("utf-8", errors="replace"))
-        res["model_view"] = untrusted.render_for_model(wrapped)
-        res["injection_suspected"] = wrapped.injection_suspected
+        raw = ev_mod.load(adir, _sha_for(adir, ev_id)) or b""
+        text = raw.decode("utf-8", errors="replace")
+        max_preview = 4096
+        # Fence overhead (source line + END marker) plus a fixed margin for the
+        # optional "[INJECTION-SUSPECTED]" flag, so the rendered preview is
+        # guaranteed to fit max_preview regardless of the flag being present.
+        overhead = len(untrusted.render_for_model(untrusted.wrap(target, ""))) \
+            + len(" [INJECTION-SUSPECTED]")
+        body_budget = max(0, max_preview - overhead)
+        wrapped = untrusted.wrap(target, text[:body_budget])
+        res["preview"] = untrusted.render_for_model(wrapped)   # bounded, still fenced
+        res["injection_suspected"] = untrusted.wrap(target, text).injection_suspected
+        res["digest"] = digest_mod.summarize("recon", raw)
+        res.pop("model_view", None)                            # do not dump full body
     return res
 
 
@@ -110,8 +130,10 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     argv = ["-sV", "-Pn"] + (["-p", ports] if ports else [])
     job = ExecutionJob(capability="network.port_scan", tool_id="nmap",
                        argv=argv, targets=[target], expected_oracle="none")
-    return _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
-                             runner=_run_via_registry, health_probe=lambda t: True)
+    adir = _adir(assessment)
+    res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
+                            runner=_run_via_registry, health_probe=lambda t: True)
+    return _attach_digest(adir, res, "port_scan")
 
 
 def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
@@ -140,9 +162,11 @@ def offensia_run_job(job: dict, assessment: str = "default") -> dict:
         ej = ExecutionJob(**job)
     except TypeError as exc:
         return {"status": "refused", "reason": "BAD_JOB", "detail": str(exc)}
-    return _executor.run_job(_adir(assessment), ej, scope_file=PATHS.scope_file,
-                             runner=_run_via_registry,
-                             health_probe=lambda t: True)
+    adir = _adir(assessment)
+    res = _executor.run_job(adir, ej, scope_file=PATHS.scope_file,
+                            runner=_run_via_registry,
+                            health_probe=lambda t: True)
+    return _attach_digest(adir, res, "http")
 
 
 def _exp_job(exp: dict, argv: list, identity: dict | None) -> ExecutionJob:
@@ -228,6 +252,8 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
             "negative_control_used": verdict.negative_control_used,
             "correlation_id": correlation_id,
             "evidence_refs": refs + [ctx_ref.evidence_id],
+            "digest": {name: digest_mod.summarize("http", norm.get("raw", ""))
+                      for name, norm in normalized.items()},
             "job_results": {k: v.get("status") for k, v in job_results.items()}}
 
 

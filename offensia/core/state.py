@@ -18,10 +18,8 @@ def _state_file(assessment_dir: Path) -> Path:
     return Path(assessment_dir) / "state.json"
 
 
-def create(assessment_id: str, engagement: str = "", base: str | None = None) -> dict:
-    paths = get_paths(base)
-    adir = paths.assessment_dir(assessment_id)
-    data = {
+def _default_state(assessment_id: str, engagement: str = "") -> dict:
+    return {
         "assessment_id": assessment_id,
         "engagement": engagement,
         "created": datetime.now(UTC).isoformat(),
@@ -30,6 +28,12 @@ def create(assessment_id: str, engagement: str = "", base: str | None = None) ->
         "pending_tests": [],
         "pending_validation": [],
     }
+
+
+def create(assessment_id: str, engagement: str = "", base: str | None = None) -> dict:
+    paths = get_paths(base)
+    adir = paths.assessment_dir(assessment_id)
+    data = _default_state(assessment_id, engagement)
     _state_file(adir).write_text(json.dumps(data, indent=2, ensure_ascii=False),
                                  encoding="utf-8")
     return data
@@ -40,7 +44,13 @@ def load(assessment_id: str, base: str | None = None) -> dict | None:
     path = _state_file(paths.assessment_dir(assessment_id))
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    # Tolerate a state.json missing assessment keys (e.g. clobbered by a legacy
+    # executor checkpoint, or otherwise partial): merge onto the default template
+    # without overwriting any real values already present.
+    merged = _default_state(assessment_id)
+    merged.update(loaded)
+    return merged
 
 
 def save(assessment_id: str, data: dict, base: str | None = None) -> None:

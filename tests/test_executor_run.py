@@ -41,7 +41,7 @@ def test_unhealthy_target_halts(tmp_path):
 def test_checkpoint_written(tmp_path):
     ex.run_job(tmp_path, _job(), scope_file=_scope(tmp_path),
                runner=lambda job, budget: {"ok": True, "raw": "ok"}, health_probe=lambda t: True)
-    assert (tmp_path / "state.json").exists()
+    assert (tmp_path / "executor-checkpoint.json").exists()
 
 
 def test_run_job_refused_when_lock_held(tmp_path):

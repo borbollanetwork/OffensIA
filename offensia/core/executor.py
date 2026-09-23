@@ -120,10 +120,10 @@ def _atomic_write_json(path: Path, obj: dict) -> None:
             _os.remove(tmp)
 
 
-def _checkpoint(adir: Path, job, status: str, seq: int, evidence_id: str | None,
+def _checkpoint(adir: Path, job, status: str, terminal_seq: int, evidence_id: str | None,
                  budget_consumed: dict | None = None) -> None:
-    _atomic_write_json(Path(adir) / "state.json", {
-        "last_job_id": job.job_id, "last_action_seq": seq, "last_status": status,
+    _atomic_write_json(Path(adir) / "executor-checkpoint.json", {
+        "last_job_id": job.job_id, "last_action_seq": terminal_seq, "last_status": status,
         "last_evidence_id": evidence_id, "budget_consumed": budget_consumed})
 
 
@@ -141,17 +141,17 @@ def run_job(adir, job, *, scope_file, runner, health_probe=None,
         try:
             validate_job(job, scope_file)
         except JobRejected as exc:
-            record_action(adir, seq, "refused", {"job_id": job.job_id, "reason": exc.reason})
-            _checkpoint(adir, job, "refused", seq, None, None)
+            term = record_action(adir, seq, "refused", {"job_id": job.job_id, "reason": exc.reason})
+            _checkpoint(adir, job, "refused", term["seq"], None, None)
             return {"status": "refused", "action_seq": seq, "reason": exc.reason,
                     "evidence_id": None, "ledger_ref": None}
         record_action(adir, seq, "intent", {"job_id": job.job_id, "tool_id": job.tool_id,
                                             "targets": job.targets})
         # health-aware halt: do not hammer an unavailable target
         if health_probe is not None and not all(health_probe(t) for t in job.targets):
-            record_action(adir, next_seq(adir), "interrupted",
+            term = record_action(adir, next_seq(adir), "interrupted",
                           {"job_id": job.job_id, "reason": "target_unavailable"})
-            _checkpoint(adir, job, "interrupted", seq, None, None)
+            _checkpoint(adir, job, "interrupted", term["seq"], None, None)
             return {"status": "interrupted", "action_seq": seq, "reason": "target_unavailable",
                     "evidence_id": None, "ledger_ref": None}
         record_action(adir, next_seq(adir), "running", {"job_id": job.job_id})
@@ -160,13 +160,13 @@ def run_job(adir, job, *, scope_file, runner, health_probe=None,
         try:
             result = runner(job, budget)
         except CapExceeded as exc:
-            record_action(adir, next_seq(adir), exc.reason, {"job_id": job.job_id})
-            _checkpoint(adir, job, exc.reason, seq, None, budget.snapshot())
+            term = record_action(adir, next_seq(adir), exc.reason, {"job_id": job.job_id})
+            _checkpoint(adir, job, exc.reason, term["seq"], None, budget.snapshot())
             return {"status": exc.reason, "action_seq": seq, "reason": exc.reason,
                     "evidence_id": None, "ledger_ref": None}
         except Exception as exc:  # noqa: BLE001 — runner failure is a job failure, not a crash
-            record_action(adir, next_seq(adir), "failed", {"job_id": job.job_id, "error": str(exc)})
-            _checkpoint(adir, job, "failed", seq, None, budget.snapshot())
+            term = record_action(adir, next_seq(adir), "failed", {"job_id": job.job_id, "error": str(exc)})
+            _checkpoint(adir, job, "failed", term["seq"], None, budget.snapshot())
             return {"status": "failed", "action_seq": seq, "error": str(exc),
                     "evidence_id": None, "ledger_ref": None}
         ev = _evidence.store(adir, result.get("raw", ""), kind=job.capability)
@@ -174,9 +174,9 @@ def run_job(adir, job, *, scope_file, runner, health_probe=None,
                                       "tool_id": job.tool_id, "ok": result.get("ok"),
                                       "evidence_id": ev.evidence_id})
         status = "completed" if result.get("ok") else "failed"
-        record_action(adir, next_seq(adir), status, {"job_id": job.job_id,
+        term = record_action(adir, next_seq(adir), status, {"job_id": job.job_id,
                                                      "evidence_id": ev.evidence_id})
-        _checkpoint(adir, job, status, seq, ev.evidence_id, budget.snapshot())
+        _checkpoint(adir, job, status, term["seq"], ev.evidence_id, budget.snapshot())
         return {"status": status, "action_seq": seq, "evidence_id": ev.evidence_id,
                 "ledger_ref": event["event_id"]}
     finally:
