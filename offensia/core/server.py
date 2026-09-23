@@ -124,7 +124,7 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     return _record(assessment, target, res, "port_scan")
 
 
-def _run_via_registry(job: ExecutionJob) -> dict:
+def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
     """Resolve the capability to an adapter and invoke it with the job's argv.
     Kept as a module function so tests can substitute it."""
     cap = REGISTRY.get(job.capability)          # raises KeyError if unknown
