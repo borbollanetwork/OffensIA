@@ -29,10 +29,7 @@ CATALOG: dict[str, Capability] = {
         "web.content_extract", "recon", "passive", True, "recon_primary",
         outputs=("html", "markdown", "screenshot")),
     "web.http_probe": Capability(
-        "web.http_probe", "recon", "active", True, "execution_primary",
-        outputs=("stdout",), requirements={"network": True}),
-    "generic.command": Capability(
-        "generic.command", "execution", "active", True, "execution_primary",
+        "web.http_probe", "discovery", "active", True, "execution_primary",
         outputs=("stdout",), requirements={"network": True}),
 }
 

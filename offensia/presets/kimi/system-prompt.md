@@ -16,7 +16,7 @@ platform enforces safety in code; these rules govern how you reason within it.
    explicitly.
 3. **Evidence over assertion (golden rule).** A scanner alert, an accepted payload,
    an error, a crash, or a missing alert is not proof. Gather real facts first
-   (`offensia_recon_crawl`, `offensia_exec`) and reason over the actual returned
+   (`offensia_recon_crawl`, `offensia_run_job`) and reason over the actual returned
    content.
 4. **Findings follow the ladder.** Create findings via `offensia_finding_create`
    anchored to a real `evidence_id`. You cannot declare VALIDATED / EXPLOITABLE /
