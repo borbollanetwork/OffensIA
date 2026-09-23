@@ -27,3 +27,11 @@ def test_canary_also_in_control_is_inconclusive():
         target="t", canary="C",
         candidate=_r("...C..."), negative_control=_r("...C..."))
     assert ORACLE.evaluate(ctx).verdict == "inconclusive"
+
+
+def test_missing_negative_control_is_inconclusive():
+    ctx = base.OracleContext(
+        target="t", canary="OFFENSIA-CANARY-7a1f",
+        candidate=_r("root:x:0:0 ... OFFENSIA-CANARY-7a1f"),
+        negative_control=None)
+    assert ORACLE.evaluate(ctx).verdict == "inconclusive"
