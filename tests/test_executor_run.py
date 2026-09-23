@@ -1,3 +1,5 @@
+import pytest
+
 from offensia.core import executor as ex
 from offensia.core.jobs import ExecutionJob
 
@@ -40,3 +42,30 @@ def test_checkpoint_written(tmp_path):
     ex.run_job(tmp_path, _job(), scope_file=_scope(tmp_path),
                runner=lambda job: {"ok": True, "raw": "ok"}, health_probe=lambda t: True)
     assert (tmp_path / "state.json").exists()
+
+
+def test_run_job_refused_when_lock_held(tmp_path):
+    lock = ex.acquire_lock(tmp_path)
+    called = []
+    try:
+        res = ex.run_job(tmp_path, _job(), scope_file=_scope(tmp_path),
+                         runner=lambda job: called.append(job) or {"ok": True, "raw": "x"},
+                         health_probe=lambda t: True)
+    finally:
+        lock.release()
+    assert res["status"] == "refused"
+    assert res["reason"] == "BUSY"
+    assert called == []
+
+
+@pytest.mark.parametrize("kw", [
+    dict(argv=123),
+    dict(targets=123),
+    dict(cleanup_plan=[123]),
+])
+def test_run_job_malformed_fields_return_structured_refusal(tmp_path, kw):
+    res = ex.run_job(tmp_path, _job(**kw), scope_file=_scope(tmp_path),
+                     runner=lambda job: {"ok": True, "raw": "x"},
+                     health_probe=lambda t: True)
+    assert res["status"] == "refused"
+    assert res["reason"] == "BAD_JOB"

@@ -70,3 +70,33 @@ def test_destruction_guard_allows_self_canary(tmp_path):
     j = _job(tool_id="generic_http", argv=["http://example.com"],
              cleanup_plan=[{"action": "delete", "path": "/tmp/offensia-canary", "origin": "offensia"}])
     validate_job(j, _scope(tmp_path, "example.com"))  # no raise
+
+
+@pytest.mark.parametrize("bad_argv", [
+    ["; rm -rf /"],
+    ["$(whoami)"],
+    ["&&", "curl", "http://evil"],
+    ["-H", "X: a; rm -rf /"],
+])
+def test_generic_http_injection_argv_refused(tmp_path, bad_argv):
+    j = _job(tool_id="generic_http", argv=bad_argv)
+    with pytest.raises(JobRejected) as e:
+        validate_job(j, _scope(tmp_path, "example.com"))
+    assert e.value.reason == "ARGV_NOT_ALLOWED"
+
+
+def test_generic_http_legit_job_still_passes(tmp_path):
+    j = _job(tool_id="generic_http", argv=["http://example.com", "-X", "GET"])
+    validate_job(j, _scope(tmp_path, "example.com"))  # no raise
+
+
+@pytest.mark.parametrize("kw", [
+    dict(argv=123),
+    dict(targets=123),
+    dict(cleanup_plan=[123]),
+])
+def test_malformed_job_fields_refused_not_raised(tmp_path, kw):
+    j = _job(**kw)
+    with pytest.raises(JobRejected) as e:
+        validate_job(j, _scope(tmp_path, "example.com"))
+    assert e.value.reason == "BAD_JOB"
