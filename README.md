@@ -94,6 +94,113 @@ offensia knowledge index ./doctrine
 offensia doctor                   # diagnósticos acionáveis
 ```
 
+### Passo a passo: do zero ao pentest
+
+Guia completo, comando por comando, para sair do nada e começar um engagement
+autorizado dirigido pelo Kimi (o mesmo vale para o GLM trocando `kimi` por `glm`).
+
+**0. Pré-requisitos.** Python 3.11+, `git`, e `sudo` (o instalador auto-instala o
+Docker se faltar). Tenha o seu LLM agent (Kimi CLI) instalado e autenticado — é ele
+que dirige o OffensIA pelas ferramentas MCP.
+
+```bash
+python3 --version    # >= 3.11
+```
+
+**1. Obter o projeto.**
+
+```bash
+git clone git@github.com:borbollanetwork/OffensIA.git ~/OffensIA
+cd ~/OffensIA
+```
+
+**2. (Opcional) model id do provider.** Necessário apenas para o runner autônomo
+(planejado); para um engagement dirigido pelo Kimi CLI, pule. Se quiser configurar:
+
+```bash
+cp .env.example .env
+# edite .env: OFFENSIA_MODEL_ID=<id exato do seu modelo>  (o OffensIA nunca inventa um id)
+```
+
+**3. Instalar (um comando).** Cria a venv e instala o pacote, provisiona/sobe as
+engines, roda `offensia init` (scope default-deny), registra o servidor MCP na
+config do agent (com backup) e roda o `doctor`.
+
+```bash
+./install.sh kimi
+# config do agent em outro caminho:  ./install.sh kimi /caminho/para/mcp.json
+```
+
+**4. Conferir a saúde.**
+
+```bash
+source .venv/bin/activate    # habilita o comando `offensia`
+offensia doctor              # todos os checks devem dar [OK ]
+```
+
+Se as engines não subiram (por exemplo, sem Docker), use o reference engine (stdlib,
+sem Docker/dependências):
+
+```bash
+./start.sh --reference
+offensia doctor              # execution_engine / recon_engine agora [OK ]
+```
+
+**5. Autorizar o escopo.** Escolha um caminho:
+
+- **A — o modelo entrevista (recomendado):** não faça nada aqui; ao iniciar, o
+  operador pergunta targets, proibições e a referência de autorização, e só então
+  registra o escopo via `offensia_scope_add`. O modelo nunca inventa nem expande o
+  escopo.
+- **B — pré-autorizar pela CLI:**
+
+  ```bash
+  offensia scope add app.authorized.example --auth CONTRACT-2026-001
+  offensia scope list
+  ```
+
+> Adicione um target apenas com autorização por escrito. Fora do escopo = recusado
+> em código.
+
+**6. Iniciar o agent com o preset.** Inicie o Kimi CLI normalmente — ele lê
+`~/.config/kimi/mcp.json`, então as ferramentas `offensia_*` já estão disponíveis.
+Carregue o system prompt do operador, que impõe o método e as regras de segurança:
+
+```
+offensia/presets/kimi/system-prompt.md
+```
+
+**7. Começar o engagement (no chat do agent).** Informe o alvo e a autorização.
+Exemplo:
+
+```
+Engagement autorizado. Target: app.authorized.example.
+Autorização: CONTRACT-2026-001. Proibições: sem DoS, sem movimento lateral sem meu OK.
+Faça o levantamento e comece.
+```
+
+O fluxo imposto pelo preset + código: entrevista/registra escopo →
+`offensia_recon_crawl` / `offensia_port_scan` → hipóteses →
+`offensia_run_job` / `offensia_run_experiment` (baseline + candidate + negative
+control avaliados por um semantic oracle) → findings confirmados apenas por veredito
+de oracle (nunca por exit code, HTTP 200, timeout ou block page) → coverage → report.
+
+**8. Acompanhar e relatar (pela CLI, opcional).**
+
+```bash
+offensia status
+offensia finding list
+offensia coverage show
+offensia ledger verify           # integridade da cadeia de hash
+offensia report technical > relatorio.md
+```
+
+**9. Desligar após o uso.**
+
+```bash
+./stop.sh
+```
+
 ### Ligar e desligar
 
 Depois de instalado, controle o OffensIA com dois scripts:
@@ -224,6 +331,111 @@ offensia report technical eng-42
 offensia resume eng-42            # resumable state
 offensia knowledge index ./doctrine
 offensia doctor                   # actionable diagnostics
+```
+
+### Step by step: from zero to a pentest
+
+A complete, command-by-command walkthrough to go from nothing to an authorized
+engagement driven by Kimi (use `glm` in place of `kimi` for GLM).
+
+**0. Prerequisites.** Python 3.11+, `git`, and `sudo` (the installer auto-installs
+Docker if missing). Have your LLM agent (Kimi CLI) installed and authenticated — it
+is what drives OffensIA through the MCP tools.
+
+```bash
+python3 --version    # >= 3.11
+```
+
+**1. Get the project.**
+
+```bash
+git clone git@github.com:borbollanetwork/OffensIA.git ~/OffensIA
+cd ~/OffensIA
+```
+
+**2. (Optional) provider model id.** Only needed for the autonomous runner
+(planned); skip it for a Kimi-CLI-driven engagement. To set it:
+
+```bash
+cp .env.example .env
+# edit .env: OFFENSIA_MODEL_ID=<the exact id of your model>  (OffensIA never invents one)
+```
+
+**3. Install (one command).** Creates the venv and installs the package, provisions
+and starts the engines, runs `offensia init` (default-deny scope), registers the MCP
+server into the agent config (with backup), and runs `doctor`.
+
+```bash
+./install.sh kimi
+# agent config elsewhere:  ./install.sh kimi /path/to/mcp.json
+```
+
+**4. Check health.**
+
+```bash
+source .venv/bin/activate    # enables the `offensia` command
+offensia doctor              # every check should read [OK ]
+```
+
+If the engines did not come up (e.g. no Docker), use the dependency-free reference
+engine:
+
+```bash
+./start.sh --reference
+offensia doctor              # execution_engine / recon_engine now [OK ]
+```
+
+**5. Authorize scope.** Pick one path:
+
+- **A — the model interviews you (recommended):** do nothing here; on start the
+  operator asks for targets, prohibitions, and the authorization reference, then
+  records scope via `offensia_scope_add`. The model never invents or expands scope.
+- **B — pre-authorize via CLI:**
+
+  ```bash
+  offensia scope add app.authorized.example --auth CONTRACT-2026-001
+  offensia scope list
+  ```
+
+> Add a target only with written authorization. Out of scope = refused in code.
+
+**6. Start the agent with the preset.** Start Kimi CLI as usual — it reads
+`~/.config/kimi/mcp.json`, so the `offensia_*` tools are already available. Load the
+operator system prompt, which enforces the method and safety rules:
+
+```
+offensia/presets/kimi/system-prompt.md
+```
+
+**7. Begin the engagement (in the agent chat).** State the target and authorization.
+Example:
+
+```
+Authorized engagement. Target: app.authorized.example.
+Authorization: CONTRACT-2026-001. Prohibitions: no DoS, no lateral movement without my OK.
+Do the reconnaissance and begin.
+```
+
+The flow enforced by the preset + code: interview/record scope →
+`offensia_recon_crawl` / `offensia_port_scan` → hypotheses →
+`offensia_run_job` / `offensia_run_experiment` (baseline + candidate + negative
+control evaluated by a semantic oracle) → findings confirmed only by an oracle
+verdict (never by exit code, HTTP 200, timeout, or a block page) → coverage → report.
+
+**8. Track and report (via CLI, optional).**
+
+```bash
+offensia status
+offensia finding list
+offensia coverage show
+offensia ledger verify           # hash-chain integrity
+offensia report technical > report.md
+```
+
+**9. Shut down after use.**
+
+```bash
+./stop.sh
 ```
 
 ### Start and stop
