@@ -94,6 +94,20 @@ offensia knowledge index ./doctrine
 offensia doctor                   # diagnósticos acionáveis
 ```
 
+### Ligar e desligar
+
+Depois de instalado, controle o OffensIA com dois scripts:
+
+```bash
+./start.sh              # liga: sobe a engine stack (Docker/pip) + health check
+./start.sh --reference  # liga usando o reference engine (sem Docker/dependências)
+./stop.sh               # desliga: encerra as engines e o reference engine
+```
+
+Equivalentes via CLI: `offensia engines up`, `offensia engines status`,
+`offensia engines down`. O `start.sh` é idempotente e, se nenhuma engine do
+manifesto responder, sobe o reference engine como fallback.
+
 #### Como funciona a evidence validation
 
 Um finding começa em um estado não confirmatório, ancorado a um `evidence_id`
@@ -211,6 +225,20 @@ offensia resume eng-42            # resumable state
 offensia knowledge index ./doctrine
 offensia doctor                   # actionable diagnostics
 ```
+
+### Start and stop
+
+Once installed, control OffensIA with two scripts:
+
+```bash
+./start.sh              # start: bring the engine stack up (Docker/pip) + health check
+./start.sh --reference  # start using the dependency-free reference engine
+./stop.sh               # stop: shut down engines and the reference engine
+```
+
+CLI equivalents: `offensia engines up`, `offensia engines status`,
+`offensia engines down`. `start.sh` is idempotent and, if no manifest engine
+answers, brings up the reference engine as a fallback.
 
 #### How evidence validation works
 A finding starts in a non-confirming state anchored to a stored `evidence_id`.

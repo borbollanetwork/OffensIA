@@ -186,3 +186,5 @@ python3 -m offensia.core.cli doctor | sed 's/^/  /' || true
 printf "\n${C_BOLD}${C_GREEN}✔ OffensIA ready.${C_RESET} Start your agent (${C_CYAN}%s${C_RESET}) — the offensia_* tools are registered.\n" "$AGENT"
 printf "${C_DIM}  Authorize a target before testing:${C_RESET}\n"
 printf "    ${C_CYAN}./offensia scope add <target> --auth <authorization_ref>${C_RESET}\n"
+printf "${C_DIM}  Turn OffensIA on/off any time:${C_RESET}\n"
+printf "    ${C_CYAN}./start.sh${C_RESET}   ${C_DIM}(bring engines up)${C_RESET}      ${C_CYAN}./stop.sh${C_RESET}   ${C_DIM}(shut everything down)${C_RESET}\n"

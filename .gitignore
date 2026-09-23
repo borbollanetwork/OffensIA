@@ -26,3 +26,7 @@ dist/
 
 # Config backups produced by agent registration
 *.bak.*
+
+# Runtime
+reference-engine.log
+.reference-engine.pid
