@@ -161,9 +161,14 @@ def _run_leg(adir, exp: dict, argv: list, identity: dict | None) -> tuple[dict, 
     raw = b""
     if res.get("evidence_id"):
         raw = ev_mod.load(adir, _sha_for(adir, res["evidence_id"])) or b""
-    return res, {"ok": res.get("status") == "completed",
-                 "raw": raw.decode("utf-8", errors="replace"),
-                 "evidence_id": res.get("evidence_id")}
+    norm = {"ok": res.get("status") == "completed",
+            "raw": raw.decode("utf-8", errors="replace"),
+            "evidence_id": res.get("evidence_id")}
+    # Only forward oast_events when the leg's raw result actually carries them —
+    # an unconditional [] default would shadow OASTOracle's collector fallback.
+    if "oast_events" in res:
+        norm["oast_events"] = res["oast_events"]
+    return res, norm
 
 
 @mcp.tool()
@@ -174,6 +179,9 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
     target = experiment.get("target", "")
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
+    for required in ("capability", "tool_id", "target", "candidate_argv"):
+        if not experiment.get(required):
+            return {"ok": False, "error": "BAD_EXPERIMENT", "detail": required}
     oracle_name = experiment.get("expected_oracle", "")
     if oracle_name not in oracles.available():
         return {"ok": False, "error": "UNKNOWN_ORACLE", "message": oracle_name}
@@ -194,12 +202,18 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
         normalized[name] = norm
         if norm.get("evidence_id"):
             refs.append(norm["evidence_id"])
+    identity = dict(experiment.get("identity", {}))
+    correlation_id = experiment.get("correlation_id", "")
+    if oracle_name == "oast":
+        collector = oast.OASTCollector(adir)
+        correlation_id = correlation_id or collector.token()
+        identity["_collector"] = collector
     ctx = oracles.OracleContext(
         target=target, baseline=normalized.get("baseline"),
         candidate=normalized.get("candidate"),
         negative_control=normalized.get("negative_control"),
-        identity=experiment.get("identity", {}), canary=experiment.get("canary", ""),
-        correlation_id=experiment.get("correlation_id", ""), evidence_refs=refs)
+        identity=identity, canary=experiment.get("canary", ""),
+        correlation_id=correlation_id, evidence_refs=refs)
     verdict = oracles.get(oracle_name).evaluate(ctx)
     ctx_ref = ev_mod.store(adir, str({"oracle": oracle_name, "verdict": verdict.verdict,
                                       "rationale": verdict.rationale}), kind="experiment")
@@ -211,6 +225,8 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
             "status": "completed", "oracle_verdict": verdict.verdict,
             "confidence": verdict.confidence, "reproduced": verdict.reproduced,
             "rationale": verdict.rationale,
+            "negative_control_used": verdict.negative_control_used,
+            "correlation_id": correlation_id,
             "evidence_refs": refs + [ctx_ref.evidence_id],
             "job_results": {k: v.get("status") for k, v in job_results.items()}}
 
@@ -264,7 +280,7 @@ def offensia_validate_finding(target: str, finding_id: str, checks: list | None 
         v = oracles.OracleVerdict(
             reproduced=exp_res["reproduced"], verdict=exp_res["oracle_verdict"],
             confidence=exp_res["confidence"], rationale=exp_res["rationale"],
-            negative_control_used=bool(experiment.get("negative_argv")),
+            negative_control_used=exp_res["negative_control_used"],
             evidence_refs=exp_res["evidence_refs"])
         try:
             f = fnd.promote_from_verdict(findings[finding_id], target_status,
