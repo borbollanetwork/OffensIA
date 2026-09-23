@@ -12,6 +12,10 @@ import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from offensia.core.oracles.base import OracleVerdict
 
 # Lifecycle states (spec section 5)
 INFORMATIONAL = "INFORMATIONAL"
@@ -43,9 +47,13 @@ VALIDATION_GATED = {VALIDATED, EXPLOITABLE, CONFIRMED_IMPACT}
 # Which validation checks must have passed to enter each gated state.
 PROMOTION_REQUIRES = {
     VALIDATED: {"reproduction", "negative_control"},
-    EXPLOITABLE: {"reproduction", "negative_control"},
+    EXPLOITABLE: {"reproduction", "negative_control", "semantic_validation"},
     CONFIRMED_IMPACT: {"reproduction", "negative_control", "impact_validation"},
 }
+
+# Oracles whose high-confidence confirmations demonstrate real impact (not just
+# a reproducible behavioral difference).
+IMPACT_ORACLES = {"authorization", "file_read", "oast"}
 
 
 class PromotionError(Exception):
@@ -129,6 +137,34 @@ def promote(finding: Finding, target_status: str, checks_passed: set[str],
     if validation_event_id:
         finding.validation_events.append(validation_event_id)
     return finding
+
+
+def verdict_to_checks(oracle_name: str, v: OracleVerdict) -> set[str]:
+    """Translate an oracle verdict into the set of validation checks it satisfies."""
+    checks: set[str] = set()
+    if v.reproduced:
+        checks |= {"reproduction", "semantic_validation"}
+        if v.negative_control_used:
+            checks.add("negative_control")
+        if oracle_name in IMPACT_ORACLES and v.confidence == "high":
+            checks.add("impact_validation")
+    return checks
+
+
+def promote_from_verdict(finding: Finding, target_status: str, oracle_name: str,
+                          v: OracleVerdict, validation_event_id: str = "") -> Finding:
+    """Promote a finding using an OracleVerdict as the source of validation checks.
+
+    Refuses (raises PromotionError) when the verdict did not reproduce the
+    behavior at all, regardless of target_status.
+    """
+    if not v.reproduced:
+        raise PromotionError(
+            f"oracle {oracle_name!r} verdict is {v.verdict!r}; cannot promote to {target_status}"
+        )
+    finding.oracle = oracle_name
+    return promote(finding, target_status, verdict_to_checks(oracle_name, v),
+                    validation_event_id=validation_event_id)
 
 
 # ------------------------------------------------------------------ persistence
