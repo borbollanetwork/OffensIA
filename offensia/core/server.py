@@ -7,6 +7,7 @@ neutral offensia_* tools. Safety is enforced here in code, not by prompt.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from offensia.adapters.execution import primary as execp
@@ -173,10 +174,18 @@ def _probe_sample(capability: str) -> dict:
             "latency_ms": raw.get("latency_ms")}
 
 
-def _health_probe_for(capability: str):
-    """Build a real health-aware probe for `capability` (per-call resolution,
-    since the executor may reuse this probe across the lifetime of a job)."""
-    return health_mod.make_probe(lambda: _probe_sample(capability))
+_HEALTH_PROBES: dict[str, Callable[[str], bool]] = {}
+
+
+def _health_probe_for(capability: str) -> Callable[[str], bool]:
+    """Return the persistent health-aware probe for `capability`.
+
+    A job is validated to exactly one target, so `executor.run_job` calls the
+    probe exactly once per job. To let degradation be observed *across* jobs
+    (baseline recorded on job N, compared against job N+1's sample), the same
+    probe instance — and its internal baseline state — must be reused for
+    every job against a given capability, not rebuilt per call."""
+    return _HEALTH_PROBES.setdefault(capability, health_mod.make_probe(lambda: _probe_sample(capability)))
 
 
 def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
