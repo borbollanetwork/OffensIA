@@ -192,10 +192,12 @@ def _exp_job(exp: dict, argv: list, identity: dict | None) -> ExecutionJob:
         timeout=exp.get("timeout", 30), identity_context=identity or {})
 
 
-def _run_leg(adir, exp: dict, argv: list, identity: dict | None) -> tuple[dict, dict]:
+def _run_leg(adir, exp: dict, argv: list, identity: dict | None, *,
+             lock=None) -> tuple[dict, dict]:
     job = _exp_job(exp, argv, identity)
     res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
-                            runner=_run_via_registry, health_probe=lambda t: True)
+                            runner=_run_via_registry, health_probe=lambda t: True,
+                            lock=lock)
     raw = b""
     if res.get("evidence_id"):
         raw = ev_mod.load(adir, _sha_for(adir, res["evidence_id"])) or b""
@@ -235,12 +237,19 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
         legs.append(("negative_control", experiment["negative_argv"],
                      experiment.get("negative_identity") or experiment.get("identity")))
     normalized: dict = {}
-    for name, argv, ident in legs:
-        raw_res, norm = _run_leg(adir, experiment, argv, ident)
-        job_results[name] = raw_res
-        normalized[name] = norm
-        if norm.get("evidence_id"):
-            refs.append(norm["evidence_id"])
+    try:
+        lock = _executor.acquire_lock(adir)
+    except _executor.LockHeld:
+        return {"ok": False, "error": "BUSY"}
+    try:
+        for name, argv, ident in legs:
+            raw_res, norm = _run_leg(adir, experiment, argv, ident, lock=lock)
+            job_results[name] = raw_res
+            normalized[name] = norm
+            if norm.get("evidence_id"):
+                refs.append(norm["evidence_id"])
+    finally:
+        lock.release()
     identity = dict(experiment.get("identity", {}))
     correlation_id = experiment.get("correlation_id", "")
     if oracle_name == "oast":
