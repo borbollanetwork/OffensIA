@@ -12,6 +12,7 @@ from typing import Any
 
 from offensia.adapters.execution import primary as execp
 from offensia.adapters.recon import primary as reconp
+from offensia.core import attack_graph, graph_emit, untrusted
 from offensia.core import coverage as cov
 from offensia.core import digest as digest_mod
 from offensia.core import evidence as ev_mod
@@ -21,7 +22,6 @@ from offensia.core import health as health_mod
 from offensia.core import ledger as ledger_mod
 from offensia.core import scope as scope_mod
 from offensia.core import state as state_mod
-from offensia.core import untrusted
 from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
 from offensia.core.jobs import TOOL_SPECS, ExecutionJob
@@ -381,8 +381,14 @@ def offensia_validate_finding(target: str, finding_id: str, assessment: str = "d
         return {"ok": False, "error": "NOT_PROMOTED", "verdict": v.verdict,
                 "confidence": v.confidence, "message": str(exc)}
     fnd.upsert(adir, f)
+    try:
+        graph_emit.emit_from_finding(adir, f)
+        emitted = True
+    except Exception:  # noqa: BLE001 — graph bookkeeping never fails a promotion
+        emitted = False
     return {"ok": True, "finding_id": finding_id, "status": f.status,
-            "verdict": v.verdict, "experiment_id": exp_res["experiment_id"]}
+            "verdict": v.verdict, "experiment_id": exp_res["experiment_id"],
+            "graph_emitted": emitted}
 
 
 # --------------------------------------------------------- coverage/evidence/etc
@@ -430,6 +436,36 @@ def offensia_report_generate(kind: str = "technical", assessment: str = "default
     if kind not in gen:
         return {"ok": False, "error": "BAD_REPORT_KIND"}
     return {"ok": True, "kind": kind, "report": gen[kind](adir, assessment)}
+
+
+# --------------------------------------------------------------- graph tools
+@mcp.tool()
+def offensia_graph_paths(assessment: str, src: str = "", dst: str = "") -> dict:
+    """Confirmed vs candidate attack paths between two graph nodes, ranked and
+    with remediation guidance. Requires both src and dst."""
+    if not src or not dst:
+        return {"ok": False, "error": "SRC_DST_REQUIRED"}
+    _ensure_state(assessment)
+    adir = _adir(assessment)
+    confirmed = attack_graph.confirmed_paths(adir, src, dst)
+    candidate = attack_graph.candidate_paths(adir, src, dst)
+    ranked = attack_graph.rank_paths(adir, confirmed)
+    remediation = attack_graph.fix_ranking(adir, confirmed)
+    return {"ok": True, "confirmed": confirmed, "candidate": candidate,
+            "ranked": ranked, "remediation": remediation}
+
+
+@mcp.tool()
+def offensia_graph_crown_jewel(node_id: str, assessment: str = "default",
+                               value: bool = True) -> dict:
+    """Mark (or unmark) a graph node as a crown jewel."""
+    _ensure_state(assessment)
+    adir = _adir(assessment)
+    try:
+        attack_graph.set_crown_jewel(adir, node_id, value)
+    except KeyError:
+        return {"ok": False, "error": "NO_SUCH_NODE"}
+    return {"ok": True}
 
 
 def _sha_for(adir, evidence_id: str) -> str:
