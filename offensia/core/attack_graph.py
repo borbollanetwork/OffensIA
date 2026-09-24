@@ -92,6 +92,62 @@ def paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8, *, valid
     return out
 
 
+def set_crown_jewel(assessment_dir: Path, node_id: str, value: bool = True) -> None:
+    """Mark (or unmark) a node as a crown jewel by setting meta['crown_jewel']."""
+    with _db(assessment_dir) as conn:
+        row = conn.execute("SELECT meta FROM nodes WHERE id=?", (node_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"unknown node {node_id!r}")
+        meta = json.loads(row[0]) if row[0] else {}
+        meta["crown_jewel"] = value
+        conn.execute("UPDATE nodes SET meta=? WHERE id=?", (json.dumps(meta), node_id))
+
+
+def is_crown_jewel(assessment_dir: Path, node_id: str) -> bool:
+    with _db(assessment_dir) as conn:
+        row = conn.execute("SELECT meta FROM nodes WHERE id=?", (node_id,)).fetchone()
+        if row is None:
+            return False
+        meta = json.loads(row[0]) if row[0] else {}
+    return bool(meta.get("crown_jewel", False))
+
+
+_CONFIDENCE_WEIGHT = {"high": 3, "medium": 2, "low": 1}
+
+
+def _conf_between(all_edges: list[dict], u: str, v: str) -> int:
+    """Max-confidence weight among edges u->v; missing pair defaults to 1."""
+    weights = [_CONFIDENCE_WEIGHT.get(e["confidence"], 1)
+               for e in all_edges if e["src"] == u and e["dst"] == v]
+    return max(weights) if weights else 1
+
+
+def rank_paths(assessment_dir: Path, paths_in: list[list[str]]) -> list[dict]:
+    """Score and rank candidate paths deterministically.
+
+    Score = crown_jewel_bonus (10 if the path's dst node is a crown jewel else 0)
+          + confidence_weight (min over consecutive-node edges of high=3/medium=2/low=1, missing=1)
+          + shortness (1/len(path)).
+    """
+    all_edges = edges(assessment_dir)
+    results: list[dict] = []
+    for path in paths_in:
+        reaches_cj = bool(path) and is_crown_jewel(assessment_dir, path[-1])
+        crown_jewel_bonus = 10 if reaches_cj else 0
+        if len(path) > 1:
+            confidence_weight = min(
+                _conf_between(all_edges, path[i], path[i + 1])
+                for i in range(len(path) - 1)
+            )
+        else:
+            confidence_weight = 1
+        shortness = 1 / len(path) if path else 0
+        score = crown_jewel_bonus + confidence_weight + shortness
+        results.append({"path": path, "score": score, "reaches_crown_jewel": reaches_cj})
+    results.sort(key=lambda r: (-r["score"], tuple(r["path"])))
+    return results
+
+
 def confirmed_paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8) -> list[list[str]]:
     """Paths using only validated edges."""
     return paths(assessment_dir, src, dst, max_depth, validated_only=True)
