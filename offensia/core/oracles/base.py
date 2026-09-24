@@ -29,6 +29,7 @@ class OracleContext:
     correlation_id: str = ""
     attempts: list = field(default_factory=list)      # extra candidate results
     evidence_refs: list = field(default_factory=list)
+    oast_window_closed: bool = False
 
 
 @dataclass
