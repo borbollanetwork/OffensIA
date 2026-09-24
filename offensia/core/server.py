@@ -16,6 +16,7 @@ from offensia.core import digest as digest_mod
 from offensia.core import evidence as ev_mod
 from offensia.core import executor as _executor
 from offensia.core import finding as fnd
+from offensia.core import health as health_mod
 from offensia.core import ledger as ledger_mod
 from offensia.core import scope as scope_mod
 from offensia.core import state as state_mod
@@ -145,8 +146,37 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
                        argv=argv, targets=[target], expected_oracle="none")
     adir = _adir(assessment)
     res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
-                            runner=_run_via_registry, health_probe=lambda t: True)
+                            runner=_run_via_registry,
+                            health_probe=_health_probe_for("network.port_scan"))
     return _attach_digest(adir, res, "port_scan")
+
+
+def _probe_sample(capability: str) -> dict:
+    """Best-effort health sample for the adapter behind `capability`, in the
+    {"ok","status","latency_ms"} shape `health.make_probe` expects. Defensive:
+    any failure to resolve/measure health returns ok=True so a run is never
+    halted on missing telemetry — only a clear ok->down or latency-blowup
+    transition, observed across real samples, halts."""
+    try:
+        adapter = REGISTRY.resolve(capability)
+        health_fn = getattr(adapter, "health", None)
+        if health_fn is None:
+            return {"ok": True, "status": None, "latency_ms": None}
+        raw = health_fn()
+    except Exception:  # noqa: BLE001 — unmeasurable, never block a run on this
+        return {"ok": True, "status": None, "latency_ms": None}
+    if not isinstance(raw, dict) or "error" in raw:
+        # health() couldn't reach the backend (caught its own exception) —
+        # treat as unmeasurable, not as a degraded/down signal.
+        return {"ok": True, "status": None, "latency_ms": None}
+    return {"ok": bool(raw.get("ok", True)), "status": raw.get("status"),
+            "latency_ms": raw.get("latency_ms")}
+
+
+def _health_probe_for(capability: str):
+    """Build a real health-aware probe for `capability` (per-call resolution,
+    since the executor may reuse this probe across the lifetime of a job)."""
+    return health_mod.make_probe(lambda: _probe_sample(capability))
 
 
 def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
@@ -179,7 +209,7 @@ def offensia_run_job(job: dict, assessment: str = "default") -> dict:
     adir = _adir(assessment)
     res = _executor.run_job(adir, ej, scope_file=PATHS.scope_file,
                             runner=_run_via_registry,
-                            health_probe=lambda t: True)
+                            health_probe=_health_probe_for(ej.capability))
     return _attach_digest(adir, res, "http")
 
 
