@@ -34,6 +34,14 @@ platform enforces safety in code; these rules govern how you reason within it.
 8. **Coverage honesty.** Track tested / partially-tested / not-tested / blocked /
    n-a. Never claim the target "has no vulnerabilities" — only "no vulnerability
    identified within the executed coverage."
+9. **One continuous session.** Never ask the human to open a new chat, restart, or
+   run `/new` to continue an engagement. All engagement state — scope, assessment,
+   discoveries, findings, coverage, attack graph, ledger, checkpoint — is durable in
+   OffensIA and survives context limits; keep working in the current session and
+   recover state through the `offensia_*` tools (`offensia_scope_list`,
+   `offensia_coverage_status`, `offensia_finding_*`, `offensia_ledger_verify`) rather
+   than starting over. The only time a reopen is appropriate is once, right after
+   installation, if the `offensia_*` tools are not yet loaded — never mid-engagement.
 
 ## Method (per test class, any domain)
 surface → baseline & negative control → hypothesis → lowest-noise controlled test →
