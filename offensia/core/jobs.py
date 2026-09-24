@@ -161,6 +161,14 @@ def validate_job(job: ExecutionJob, scope_file: Path) -> None:
     spec = TOOL_SPECS.get(job.tool_id)
     if spec is None:
         raise JobRejected("UNKNOWN_TOOL", job.tool_id)
+    # 2b. capability must match the tool's declared capability
+    if job.capability != spec.capability:
+        raise JobRejected("CAPABILITY_MISMATCH",
+                          f"{job.capability} != {spec.capability} for {job.tool_id}")
+    # 2c. exactly one target (the dispatcher consumes targets[0]; multi-target
+    # jobs must be split into serial subjobs by the caller)
+    if len(job.targets) != 1:
+        raise JobRejected("MULTI_TARGET", f"exactly one target required, got {len(job.targets)}")
     # 3. availability guard (before argv detail so risk_class/denylist win clearly)
     if job.risk_class in DOS_RISK_CLASSES or _has_disruptive_token(job):
         raise JobRejected("AVAILABILITY_GUARD", job.risk_class)

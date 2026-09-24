@@ -53,13 +53,13 @@ def test_availability_risk_class_refused(tmp_path, risk):
 def test_disruptive_argv_denylist(tmp_path, bad):
     # nmap allows -sV; add a disruptive token to trip the denylist
     with pytest.raises(JobRejected) as e:
-        validate_job(_job(tool_id="generic_http", argv=bad + ["http://example.com"]),
+        validate_job(_job(capability="web.http_probe", tool_id="generic_http", argv=bad + ["http://example.com"]),
                      _scope(tmp_path, "example.com"))
     assert e.value.reason in ("AVAILABILITY_GUARD", "ARGV_NOT_ALLOWED")
 
 
 def test_destruction_guard_refuses_preexisting_delete(tmp_path):
-    j = _job(tool_id="generic_http", argv=["http://example.com"],
+    j = _job(capability="web.http_probe", tool_id="generic_http", argv=["http://example.com"],
              cleanup_plan=[{"action": "delete", "path": "/etc/passwd", "origin": "target"}])
     with pytest.raises(JobRejected) as e:
         validate_job(j, _scope(tmp_path, "example.com"))
@@ -67,7 +67,7 @@ def test_destruction_guard_refuses_preexisting_delete(tmp_path):
 
 
 def test_destruction_guard_allows_self_canary(tmp_path):
-    j = _job(tool_id="generic_http", argv=["http://example.com"],
+    j = _job(capability="web.http_probe", tool_id="generic_http", argv=["http://example.com"],
              cleanup_plan=[{"action": "delete", "path": "/tmp/offensia-canary", "origin": "offensia"}])
     validate_job(j, _scope(tmp_path, "example.com"))  # no raise
 
@@ -79,14 +79,14 @@ def test_destruction_guard_allows_self_canary(tmp_path):
     ["-H", "X: a; rm -rf /"],
 ])
 def test_generic_http_injection_argv_refused(tmp_path, bad_argv):
-    j = _job(tool_id="generic_http", argv=bad_argv)
+    j = _job(capability="web.http_probe", tool_id="generic_http", argv=bad_argv)
     with pytest.raises(JobRejected) as e:
         validate_job(j, _scope(tmp_path, "example.com"))
     assert e.value.reason == "ARGV_NOT_ALLOWED"
 
 
 def test_generic_http_legit_job_still_passes(tmp_path):
-    j = _job(tool_id="generic_http", argv=["http://example.com", "-X", "GET"])
+    j = _job(capability="web.http_probe", tool_id="generic_http", argv=["http://example.com", "-X", "GET"])
     validate_job(j, _scope(tmp_path, "example.com"))  # no raise
 
 
