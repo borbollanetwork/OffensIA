@@ -22,6 +22,16 @@ DISRUPTIVE_DENYLIST = (
 )
 
 
+def _default_effects() -> dict:
+    return {
+        "reads_target_data": True,
+        "creates_test_object": False,
+        "mutates_existing_object": False,
+        "deletes_object": False,
+        "causes_availability_impact": False,
+    }
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     tool_id: str
@@ -30,13 +40,16 @@ class ToolSpec:
     # "append" = host appended as trailing argv from the scoped target;
     # "inline" = target already inside argv (e.g. a URL).
     target_position: str = "append"
+    effects: dict = field(default_factory=_default_effects)
 
 
 # Static tool registry. Extend as adapters grow. argv_allow patterns are anchored.
 TOOL_SPECS: dict[str, ToolSpec] = {
     "nmap": ToolSpec("nmap", "network.port_scan",
-                     (r"-sV", r"-p", r"[0-9,\-]+", r"-Pn", r"-T[0-3]")),
-    "httpx": ToolSpec("httpx", "web.http_probe", (r"-status-code", r"-title", r"-tech-detect")),
+                     (r"-sV", r"-p", r"[0-9,\-]+", r"-Pn", r"-T[0-3]"),
+                     effects=_default_effects()),
+    "httpx": ToolSpec("httpx", "web.http_probe", (r"-status-code", r"-title", r"-tech-detect"),
+                      effects=_default_effects()),
     # A constrained HTTP requester used by web oracles; URL + safe flags only.
     # No shell metacharacters are ever allowed through any pattern below.
     "generic_http": ToolSpec(
@@ -51,9 +64,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             r"[A-Za-z0-9 _./:+=&%-]+",
         ),
         target_position="inline",
+        effects=_default_effects(),
     ),
     "crawl4ai_ref": ToolSpec("crawl4ai_ref", "web.content_extract", (),
-                             target_position="inline"),
+                             target_position="inline", effects=_default_effects()),
 }
 
 
@@ -129,6 +143,13 @@ def _argv_allowed(argv: list, spec: ToolSpec) -> bool:
     return all(any(p.match(str(a)) for p in pats) for a in argv)
 
 
+def _http_method(argv: list) -> str:
+    for i, tok in enumerate(argv):
+        if str(tok) == "-X" and i + 1 < len(argv):
+            return str(argv[i + 1]).upper()
+    return "GET"
+
+
 def _has_disruptive_token(job: ExecutionJob) -> bool:
     hay = " ".join([job.tool_id, *[str(a) for a in job.argv]]).lower()
     return any(tok in hay for tok in DISRUPTIVE_DENYLIST)
@@ -161,9 +182,29 @@ def validate_job(job: ExecutionJob, scope_file: Path) -> None:
     spec = TOOL_SPECS.get(job.tool_id)
     if spec is None:
         raise JobRejected("UNKNOWN_TOOL", job.tool_id)
+    # 2b. capability must match the tool's declared capability
+    if job.capability != spec.capability:
+        raise JobRejected("CAPABILITY_MISMATCH",
+                          f"{job.capability} != {spec.capability} for {job.tool_id}")
+    # 2c. exactly one target (the dispatcher consumes targets[0]; multi-target
+    # jobs must be split into serial subjobs by the caller)
+    if len(job.targets) != 1:
+        raise JobRejected("MULTI_TARGET", f"exactly one target required, got {len(job.targets)}")
     # 3. availability guard (before argv detail so risk_class/denylist win clearly)
     if job.risk_class in DOS_RISK_CLASSES or _has_disruptive_token(job):
         raise JobRejected("AVAILABILITY_GUARD", job.risk_class)
+    # 3b. per-tool effects policy
+    eff = spec.effects
+    if eff.get("causes_availability_impact"):
+        raise JobRejected("EFFECTS_AVAILABILITY", job.tool_id)
+    if eff.get("deletes_object") or eff.get("mutates_existing_object"):
+        raise JobRejected("EFFECTS_DESTRUCTIVE", job.tool_id)
+    if spec.target_position == "inline":
+        method = _http_method(job.argv)
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and not (
+                eff.get("creates_test_object") or eff.get("mutates_existing_object")
+                or eff.get("deletes_object")):
+            raise JobRejected("METHOD_EFFECT_MISMATCH", method)
     # 4. argv allowlist
     if not _argv_allowed(job.argv, spec):
         raise JobRejected("ARGV_NOT_ALLOWED", " ".join(map(str, job.argv)))

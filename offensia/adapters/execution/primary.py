@@ -13,7 +13,7 @@ from offensia.adapters.base import bound_output, result
 from offensia.core.config import settings
 
 PROVIDER_KEY = "execution_primary"
-CAPABILITIES = ("network.port_scan", "web.http_probe", "generic.command")
+CAPABILITIES = ("network.port_scan", "web.http_probe")
 
 
 def run_command(target: str, command: str, use_cache: bool = True) -> dict:
@@ -58,8 +58,17 @@ def run_argv(target: str, argv: list, budget=None, timeout: float | None = None)
         return result(False, target, "exec", error=f"{type(exc).__name__}: {exc}")
     raw, bounded = bound_output(str(data.get("stdout", "")), s["http_max_bytes"])
     succeeded = bool(data.get("success")) and int(data.get("return_code", 0) or 0) == 0
-    return result(succeeded, target, "exec", raw=raw, bounded=bounded,
-                  summary=f"rc={data.get('return_code')} success={data.get('success')}")
+    res = result(succeeded, target, "exec", raw=raw, bounded=bounded,
+                 summary=f"rc={data.get('return_code')} success={data.get('success')}")
+    if budget is not None:
+        pc = int(data.get("probe_count", 1) or 1)
+        if pc > 1:
+            from offensia.core.budget import CapExceeded
+            try:
+                budget.charge(target, cost=pc - 1)
+            except CapExceeded as exc:
+                raise exc
+    return res
 
 
 def health() -> dict:

@@ -128,13 +128,15 @@ def _checkpoint(adir: Path, job, status: str, terminal_seq: int, evidence_id: st
 
 
 def run_job(adir, job, *, scope_file, runner, health_probe=None,
-            now=time.monotonic) -> dict:
+            now=time.monotonic, lock=None) -> dict:
     adir = Path(adir)
-    try:
-        lock = acquire_lock(adir)
-    except LockHeld:
-        return {"status": "refused", "action_seq": None, "reason": "BUSY",
-                "evidence_id": None, "ledger_ref": None}
+    owns_lock = lock is None
+    if owns_lock:
+        try:
+            lock = acquire_lock(adir)
+        except LockHeld:
+            return {"status": "refused", "action_seq": None, "reason": "BUSY",
+                    "evidence_id": None, "ledger_ref": None}
     try:
         seq = next_seq(adir)
         # validate first; a rejected job is recorded 'refused' and nothing runs
@@ -180,4 +182,5 @@ def run_job(adir, job, *, scope_file, runner, health_probe=None,
         return {"status": status, "action_seq": seq, "evidence_id": ev.evidence_id,
                 "ledger_ref": event["event_id"]}
     finally:
-        lock.release()
+        if owns_lock:
+            lock.release()

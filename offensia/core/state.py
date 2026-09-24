@@ -64,4 +64,4 @@ def list_assessments(base: str | None = None) -> list[str]:
     if not paths.engagements_dir.exists():
         return []
     return sorted(p.name for p in paths.engagements_dir.iterdir()
-                  if (p / "state.json").exists())
+                  if (p / "state.json").exists() or (p / "executor-checkpoint.json").exists())

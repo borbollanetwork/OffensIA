@@ -51,7 +51,8 @@ def _exec_argv(argv: list, timeout: float = CMD_TIMEOUT) -> dict:
     except (FileNotFoundError, OSError) as exc:
         return {"stdout": "", "stderr": str(exc), "return_code": 127, "success": False}
     return {"stdout": proc.stdout, "stderr": proc.stderr,
-            "return_code": proc.returncode, "success": proc.returncode == 0}
+            "return_code": proc.returncode, "success": proc.returncode == 0,
+            "probe_count": 1}
 
 
 class _Handler(BaseHTTPRequestHandler):

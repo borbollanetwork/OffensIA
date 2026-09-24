@@ -58,7 +58,9 @@ class OASTOracle(base.Oracle):
         if events:
             return base.confirmed(f"{len(events)} correlated out-of-band callback(s)",
                                   "high", nc_used=False, evidence_refs=ctx.evidence_refs)
-        return base.disproven("no correlated out-of-band callback observed")
+        if not ctx.oast_window_closed:
+            return base.inconclusive("no callback yet; polling window still open")
+        return base.disproven("no correlated out-of-band callback within the window")
 
 
 base.register(OASTOracle())

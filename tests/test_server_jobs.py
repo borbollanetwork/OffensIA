@@ -33,3 +33,24 @@ def test_run_job_in_scope_runs(srv, monkeypatch):
            "argv": ["http://example.com"], "targets": ["example.com"]}
     out = srv.offensia_run_job(job, assessment="a")
     assert out["status"] == "completed" and out["evidence_id"]
+
+
+def test_run_job_halts_on_degradation_observed_across_calls(srv, monkeypatch):
+    """The probe must persist per-capability across jobs so a baseline set on
+    job N is compared against job N+1's sample — otherwise degraded() never
+    runs and health-aware halting is inert."""
+    srv.offensia_scope_add("example.com", "LAB")
+    monkeypatch.setattr(srv, "_run_via_registry",
+                        lambda job, budget: {"ok": True, "raw": "HTTP/1.1 200 OK evidence body"})
+    srv._HEALTH_PROBES.clear()
+    samples = iter([
+        {"ok": True, "status": 200, "latency_ms": 10},
+        {"ok": False, "status": None, "latency_ms": None},
+    ])
+    monkeypatch.setattr(srv, "_probe_sample", lambda capability: next(samples))
+    job = {"capability": "web.http_probe", "tool_id": "generic_http",
+           "argv": ["http://example.com"], "targets": ["example.com"]}
+    first = srv.offensia_run_job(job, assessment="a")
+    assert first["status"] == "completed"
+    second = srv.offensia_run_job(job, assessment="a")
+    assert second["status"] == "interrupted"

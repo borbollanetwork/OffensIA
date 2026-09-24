@@ -52,13 +52,30 @@ def test_full_finding_validation_flow(srv, monkeypatch):
     ev_id = rec["evidence_id"]
     fc = srv.offensia_finding_create("example.com", "IDOR", ev_id, status="SUSPECTED")
     assert fc["ok"]
-    # validation: attack reproduces, control does not
-    monkeypatch.setattr(srv.execp, "run_command",
-                        lambda t, c: {"ok": "attack" in c, "raw": c})
-    checks = [{"name": "reproduction", "command": "attack req", "expect": "success"},
-              {"name": "negative_control", "command": "benign req", "expect": "failure"}]
-    res = srv.offensia_validate_finding("example.com", fc["finding_id"], checks,
-                                        target_status="VALIDATED")
+
+    # oracle-driven validation: attacker identity reproduces, victim (negative
+    # control) does not -> authorization oracle confirms with a negative
+    # control, satisfying VALIDATED's promotion requirements.
+    def fake_run_job(adir, job, **kw):
+        role = job.identity_context.get("role")
+        body = ("HTTP/1.1 200 OK\n\nssn=999-b" if role == "attacker"
+                else "HTTP/1.1 403 Forbidden")
+        ref = srv.ev_mod.store(adir, body, kind=job.capability)
+        return {"status": "completed", "evidence_id": ref.evidence_id,
+                "ledger_ref": "l", "ok": True}
+
+    monkeypatch.setattr(srv._executor, "run_job", fake_run_job)
+    experiment = {
+        "capability": "web.http_probe", "tool_id": "generic_http",
+        "candidate_argv": ["https://example.com/orders/B", "-X", "GET"],
+        "negative_argv": ["https://example.com/orders/B", "-X", "GET"],
+        "expected_oracle": "authorization",
+        "identity": {"marker": "ssn=999-b"},
+        "candidate_identity": {"role": "attacker"},
+        "negative_identity": {"role": "victim_denied"},
+    }
+    res = srv.offensia_validate_finding("example.com", fc["finding_id"],
+                                        experiment=experiment, target_status="VALIDATED")
     assert res["ok"] and res["status"] == "VALIDATED"
 
 
@@ -69,8 +86,22 @@ def test_validation_refuses_without_controls(srv, monkeypatch):
                             True, target, "recon", raw="content body here long enough", summary="r"))
     rec = srv.offensia_recon_crawl("https://example.com")
     fc = srv.offensia_finding_create("example.com", "SQLi", rec["evidence_id"], status="SUSPECTED")
-    monkeypatch.setattr(srv.execp, "run_command", lambda t, c: {"ok": True, "raw": c})
-    checks = [{"name": "reproduction", "command": "x", "expect": "success"}]
-    res = srv.offensia_validate_finding("example.com", fc["finding_id"], checks,
-                                        target_status="VALIDATED")
+
+    # no negative_argv supplied -> authorization oracle can't discriminate a
+    # boundary (requires a negative control) and returns inconclusive, so the
+    # finding stays unpromoted regardless of target_status.
+    def fake_run_job(adir, job, **kw):
+        ref = srv.ev_mod.store(adir, "HTTP/1.1 200 OK\n\nssn=999-b", kind=job.capability)
+        return {"status": "completed", "evidence_id": ref.evidence_id,
+                "ledger_ref": "l", "ok": True}
+
+    monkeypatch.setattr(srv._executor, "run_job", fake_run_job)
+    experiment = {
+        "capability": "web.http_probe", "tool_id": "generic_http",
+        "candidate_argv": ["https://example.com/orders/B", "-X", "GET"],
+        "expected_oracle": "authorization",
+        "identity": {"marker": "ssn=999-b"},
+    }
+    res = srv.offensia_validate_finding("example.com", fc["finding_id"],
+                                        experiment=experiment, target_status="VALIDATED")
     assert res["ok"] is False and res["error"] == "NOT_PROMOTED"

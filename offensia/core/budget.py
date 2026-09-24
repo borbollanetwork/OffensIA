@@ -55,14 +55,16 @@ class Budget:
             self._buckets[host] = b
         return b
 
-    def charge(self, host: str) -> None:
+    def charge(self, host: str, cost: int = 1) -> None:
+        if cost <= 0:
+            return
         if self._now() >= self.deadline:
             raise CapExceeded("timeout")
-        if self.requests_made >= self.request_cap:
+        if self.requests_made + cost > self.request_cap:
             raise CapExceeded("budget_exhausted")
-        if not self._bucket(host).take(1):
+        if not self._bucket(host).take(cost):
             raise CapExceeded("rate_limited")
-        self.requests_made += 1
+        self.requests_made += cost
 
     def snapshot(self) -> dict:
         return {"requests_made": self.requests_made, "request_cap": self.request_cap,
