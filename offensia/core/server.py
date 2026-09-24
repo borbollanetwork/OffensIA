@@ -18,6 +18,7 @@ from offensia.core import executor as _executor
 from offensia.core import finding as fnd
 from offensia.core import ledger as ledger_mod
 from offensia.core import scope as scope_mod
+from offensia.core import state as state_mod
 from offensia.core import untrusted
 from offensia.core import validation as val
 from offensia.core.capability_registry import CapabilityRegistry
@@ -52,6 +53,17 @@ REGISTRY.bind("recon_primary", reconp)
 
 def _adir(assessment_id: str):
     return PATHS.assessment_dir(assessment_id)
+
+
+def _ensure_state(assessment: str) -> None:
+    """Bootstrap assessment state on first tool use, so an MCP-only engagement
+    is listed and resumable. Never raises — bookkeeping must not block a tool."""
+    adir = _adir(assessment)
+    if not (adir / "state.json").exists():
+        try:
+            state_mod.create(assessment, base=str(PATHS.base))
+        except Exception:  # noqa: BLE001 — never block a tool on bookkeeping
+            pass
 
 
 def _attach_digest(adir, res: dict, kind: str) -> dict:
@@ -97,6 +109,7 @@ def offensia_recon_crawl(target: str, mode: str = "md", assessment: str = "defau
     Returns UNTRUSTED data fenced for the model; stores raw as evidence."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
+    _ensure_state(assessment)
     job = ExecutionJob(capability="web.content_extract", tool_id="crawl4ai_ref",
                        argv=[], targets=[target], expected_oracle="none")
     res = _executor.run_job(_adir(assessment), job, scope_file=PATHS.scope_file,
@@ -127,6 +140,7 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     """Port scan a target (capability: network.port_scan)."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
+    _ensure_state(assessment)
     argv = ["-sV", "-Pn"] + (["-p", ports] if ports else [])
     job = ExecutionJob(capability="network.port_scan", tool_id="nmap",
                        argv=argv, targets=[target], expected_oracle="none")
@@ -162,6 +176,7 @@ def offensia_run_job(job: dict, assessment: str = "default") -> dict:
         ej = ExecutionJob(**job)
     except TypeError as exc:
         return {"status": "refused", "reason": "BAD_JOB", "detail": str(exc)}
+    _ensure_state(assessment)
     adir = _adir(assessment)
     res = _executor.run_job(adir, ej, scope_file=PATHS.scope_file,
                             runner=_run_via_registry,
@@ -203,6 +218,7 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
     target = experiment.get("target", "")
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
+    _ensure_state(assessment)
     for required in ("capability", "tool_id", "target", "candidate_argv"):
         if not experiment.get(required):
             return {"ok": False, "error": "BAD_EXPERIMENT", "detail": required}
@@ -265,6 +281,7 @@ def offensia_finding_create(target: str, title: str, evidence_id: str,
     Confirmation happens only through offensia_validate_finding."""
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
+    _ensure_state(assessment)
     adir = _adir(assessment)
     if not ev_mod.resolves(adir, _sha_for(adir, evidence_id)):
         return {"ok": False, "error": "EVIDENCE_NOT_FOUND",
