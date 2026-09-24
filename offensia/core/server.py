@@ -148,27 +148,22 @@ def offensia_port_scan(target: str, ports: str = "", assessment: str = "default"
     adir = _adir(assessment)
     res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
                             runner=_run_via_registry,
-                            health_probe=_health_probe_for("network.port_scan"))
+                            health_probe=_health_probe_for(target))
     return _attach_digest(adir, res, "port_scan")
 
 
-def _probe_sample(capability: str) -> dict:
-    """Best-effort health sample for the adapter behind `capability`, in the
-    {"ok","status","latency_ms"} shape `health.make_probe` expects. Defensive:
-    any failure to resolve/measure health returns ok=True so a run is never
-    halted on missing telemetry — only a clear ok->down or latency-blowup
-    transition, observed across real samples, halts."""
+def _probe_sample(target: str) -> dict:
+    """Best-effort liveness sample of the in-scope TARGET (not OffensIA's own
+    execution engine), in the {"ok","status","latency_ms"} shape
+    `health.make_probe` expects. Defensive: any failure to measure health
+    returns ok=True so a run is never halted on missing telemetry — only a
+    clear ok->down or latency-blowup transition, observed across real
+    samples, halts."""
     try:
-        adapter = REGISTRY.resolve(capability)
-        health_fn = getattr(adapter, "health", None)
-        if health_fn is None:
-            return {"ok": True, "status": None, "latency_ms": None}
-        raw = health_fn()
+        raw = health_mod.probe_target(target)
     except Exception:  # noqa: BLE001 — unmeasurable, never block a run on this
         return {"ok": True, "status": None, "latency_ms": None}
-    if not isinstance(raw, dict) or "error" in raw:
-        # health() couldn't reach the backend (caught its own exception) —
-        # treat as unmeasurable, not as a degraded/down signal.
+    if not isinstance(raw, dict):
         return {"ok": True, "status": None, "latency_ms": None}
     return {"ok": bool(raw.get("ok", True)), "status": raw.get("status"),
             "latency_ms": raw.get("latency_ms")}
@@ -177,15 +172,18 @@ def _probe_sample(capability: str) -> dict:
 _HEALTH_PROBES: dict[str, Callable[[str], bool]] = {}
 
 
-def _health_probe_for(capability: str) -> Callable[[str], bool]:
-    """Return the persistent health-aware probe for `capability`.
+def _health_probe_for(target: str) -> Callable[[str], bool]:
+    """Return the persistent health-aware probe for `target`.
 
-    A job is validated to exactly one target, so `executor.run_job` calls the
-    probe exactly once per job. To let degradation be observed *across* jobs
-    (baseline recorded on job N, compared against job N+1's sample), the same
-    probe instance — and its internal baseline state — must be reused for
-    every job against a given capability, not rebuilt per call."""
-    return _HEALTH_PROBES.setdefault(capability, health_mod.make_probe(lambda: _probe_sample(capability)))
+    Keyed by TARGET (not capability) so a baseline for target A never
+    contaminates target B, and degradation is observed across successive
+    jobs against the SAME target. A job is validated to exactly one target,
+    so `executor.run_job` calls the probe exactly once per job. To let
+    degradation be observed *across* jobs (baseline recorded on job N,
+    compared against job N+1's sample), the same probe instance — and its
+    internal baseline state — must be reused for every job against a given
+    target, not rebuilt per call."""
+    return _HEALTH_PROBES.setdefault(target, health_mod.make_probe(lambda: _probe_sample(target)))
 
 
 def _run_via_registry(job: ExecutionJob, budget: Any = None) -> dict:
@@ -216,9 +214,10 @@ def offensia_run_job(job: dict, assessment: str = "default") -> dict:
         return {"status": "refused", "reason": "BAD_JOB", "detail": str(exc)}
     _ensure_state(assessment)
     adir = _adir(assessment)
+    target = ej.targets[0] if ej.targets else ""
     res = _executor.run_job(adir, ej, scope_file=PATHS.scope_file,
                             runner=_run_via_registry,
-                            health_probe=_health_probe_for(ej.capability))
+                            health_probe=_health_probe_for(target))
     return _attach_digest(adir, res, "http")
 
 
@@ -235,7 +234,8 @@ def _run_leg(adir, exp: dict, argv: list, identity: dict | None, *,
              lock=None) -> tuple[dict, dict]:
     job = _exp_job(exp, argv, identity)
     res = _executor.run_job(adir, job, scope_file=PATHS.scope_file,
-                            runner=_run_via_registry, health_probe=lambda t: True,
+                            runner=_run_via_registry,
+                            health_probe=_health_probe_for(exp["target"]),
                             lock=lock)
     raw = b""
     if res.get("evidence_id"):
@@ -300,7 +300,8 @@ def offensia_run_experiment(experiment: dict, assessment: str = "default") -> di
         candidate=normalized.get("candidate"),
         negative_control=normalized.get("negative_control"),
         identity=identity, canary=experiment.get("canary", ""),
-        correlation_id=correlation_id, evidence_refs=refs)
+        correlation_id=correlation_id, evidence_refs=refs,
+        oast_window_closed=bool(experiment.get("oast_window_closed", False)))
     verdict = oracles.get(oracle_name).evaluate(ctx)
     ctx_ref = ev_mod.store(adir, str({"oracle": oracle_name, "verdict": verdict.verdict,
                                       "rationale": verdict.rationale}), kind="experiment")
