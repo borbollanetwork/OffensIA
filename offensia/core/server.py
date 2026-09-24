@@ -17,11 +17,11 @@ from offensia.core import digest as digest_mod
 from offensia.core import evidence as ev_mod
 from offensia.core import executor as _executor
 from offensia.core import finding as fnd
+from offensia.core import graph_emit, untrusted
 from offensia.core import health as health_mod
 from offensia.core import ledger as ledger_mod
 from offensia.core import scope as scope_mod
 from offensia.core import state as state_mod
-from offensia.core import untrusted
 from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
 from offensia.core.jobs import TOOL_SPECS, ExecutionJob
@@ -381,8 +381,14 @@ def offensia_validate_finding(target: str, finding_id: str, assessment: str = "d
         return {"ok": False, "error": "NOT_PROMOTED", "verdict": v.verdict,
                 "confidence": v.confidence, "message": str(exc)}
     fnd.upsert(adir, f)
+    try:
+        graph_emit.emit_from_finding(adir, f)
+        emitted = True
+    except Exception:  # noqa: BLE001 — graph bookkeeping never fails a promotion
+        emitted = False
     return {"ok": True, "finding_id": finding_id, "status": f.status,
-            "verdict": v.verdict, "experiment_id": exp_res["experiment_id"]}
+            "verdict": v.verdict, "experiment_id": exp_res["experiment_id"],
+            "graph_emitted": emitted}
 
 
 # --------------------------------------------------------- coverage/evidence/etc
