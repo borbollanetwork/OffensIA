@@ -158,3 +158,21 @@ def candidate_paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8
     conf = {tuple(p) for p in confirmed_paths(assessment_dir, src, dst, max_depth)}
     allp = paths(assessment_dir, src, dst, max_depth, validated_only=False)
     return [p for p in allp if tuple(p) not in conf]
+
+
+def fix_ranking(assessment_dir: Path, confirmed_paths: list[list[str]]) -> list[dict]:
+    """Rank remediation fixes by how many confirmed paths they would break.
+
+    For each intermediate node appearing in the given confirmed paths, count how many
+    of those paths it breaks if removed. Returns [{"node", "breaks"}] sorted by
+    breaks desc then node id. Empty input → [].
+    """
+    counts: dict[str, int] = {}
+    for p in confirmed_paths:
+        # Count only intermediate nodes (indices 1 to len(p)-2, excluding endpoints)
+        for i in range(1, len(p) - 1):
+            node = p[i]
+            counts[node] = counts.get(node, 0) + 1
+    ranked: list[dict] = [{"node": n, "breaks": c} for n, c in counts.items()]
+    ranked.sort(key=lambda r: (-int(r["breaks"]), r["node"]))
+    return ranked
