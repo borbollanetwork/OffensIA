@@ -20,7 +20,6 @@ from offensia.core import ledger as ledger_mod
 from offensia.core import scope as scope_mod
 from offensia.core import state as state_mod
 from offensia.core import untrusted
-from offensia.core import validation as val
 from offensia.core.capability_registry import CapabilityRegistry
 from offensia.core.config import get_paths
 from offensia.core.jobs import TOOL_SPECS, ExecutionJob
@@ -295,18 +294,15 @@ def offensia_finding_create(target: str, title: str, evidence_id: str,
 
 
 @mcp.tool()
-def offensia_validate_finding(target: str, finding_id: str, checks: list | None = None,
-                              target_status: str = "VALIDATED",
-                              assessment: str = "default",
-                              experiment: dict | None = None) -> dict:
-    """Run validation checks and promote a finding only if policy is satisfied.
+def offensia_validate_finding(target: str, finding_id: str, assessment: str = "default",
+                              experiment: dict | None = None,
+                              target_status: str = "VALIDATED") -> dict:
+    """Promote a finding only via an oracle-driven ``experiment`` run.
 
-    ``checks`` is a list of {name, command, expect} dicts. Promotion to VALIDATED/
-    EXPLOITABLE/CONFIRMED_IMPACT is code-enforced from the checks that actually pass.
-
-    When ``experiment`` is supplied (same shape as ``offensia_run_experiment``),
-    it is run instead and the resulting oracle verdict — never a model-set
-    verdict — drives promotion via ``finding.promote_from_verdict``.
+    ``experiment`` (same shape as ``offensia_run_experiment`` expects) is run
+    and the resulting oracle verdict — never a model-set verdict — drives
+    promotion via ``finding.promote_from_verdict``. This is the only
+    promotion path; there is no command-string/checks fallback.
     """
     if not scope_mod.in_scope(target, PATHS.scope_file):
         return _scope_error(target, assessment)
@@ -314,46 +310,30 @@ def offensia_validate_finding(target: str, finding_id: str, checks: list | None 
     findings = {f.finding_id: f for f in fnd.load(adir)}
     if finding_id not in findings:
         return {"ok": False, "error": "NO_SUCH_FINDING"}
-    if experiment is not None:
-        exp = dict(experiment)
-        exp.setdefault("target", target)
-        exp_res = offensia_run_experiment(exp, assessment=assessment)
-        if not exp_res.get("ok"):
-            return exp_res
-        v = oracles.OracleVerdict(
-            reproduced=exp_res["reproduced"], verdict=exp_res["oracle_verdict"],
-            confidence=exp_res["confidence"], rationale=exp_res["rationale"],
-            negative_control_used=exp_res["negative_control_used"],
-            evidence_refs=exp_res["evidence_refs"])
-        try:
-            f = fnd.promote_from_verdict(findings[finding_id], target_status,
-                                         exp["expected_oracle"], v,
-                                         validation_event_id=exp_res["experiment_id"])
-        except fnd.PromotionError as exc:
-            fnd.upsert(adir, findings[finding_id])
-            return {"ok": False, "error": "NOT_PROMOTED", "verdict": v.verdict,
-                    "confidence": v.confidence, "message": str(exc)}
-        fnd.upsert(adir, f)
-        return {"ok": True, "finding_id": finding_id, "status": f.status,
-                "verdict": v.verdict, "experiment_id": exp_res["experiment_id"]}
-    checks = checks or []
-    check_objs = [val.Check(name=c.get("name", ""), command=c.get("command", ""),
-                            expect=c.get("expect", "success")) for c in checks]
-    report = val.run_checks(target, check_objs, runner=execp.run_command)
-    ev = ledger_mod.append(adir, {"kind": "validation", "action": "validate",
-                                  "target": target, "finding_id": finding_id,
-                                  "summary": f"verdict={report.verdict}",
-                                  "checks_passed": sorted(report.checks_passed)})
+    if experiment is None:
+        return {"ok": False, "error": "EXPERIMENT_REQUIRED",
+                "message": "validation requires a typed experiment + oracle"}
+    exp = dict(experiment)
+    exp.setdefault("target", target)
+    exp_res = offensia_run_experiment(exp, assessment=assessment)
+    if not exp_res.get("ok"):
+        return exp_res
+    v = oracles.OracleVerdict(
+        reproduced=exp_res["reproduced"], verdict=exp_res["oracle_verdict"],
+        confidence=exp_res["confidence"], rationale=exp_res["rationale"],
+        negative_control_used=exp_res["negative_control_used"],
+        evidence_refs=exp_res["evidence_refs"])
     try:
-        f = fnd.promote(findings[finding_id], target_status,
-                        report.checks_passed, validation_event_id=ev["event_id"])
+        f = fnd.promote_from_verdict(findings[finding_id], target_status,
+                                     exp["expected_oracle"], v,
+                                     validation_event_id=exp_res["experiment_id"])
     except fnd.PromotionError as exc:
         fnd.upsert(adir, findings[finding_id])
-        return {"ok": False, "error": "NOT_PROMOTED", "verdict": report.verdict,
-                "checks_passed": sorted(report.checks_passed), "message": str(exc)}
+        return {"ok": False, "error": "NOT_PROMOTED", "verdict": v.verdict,
+                "confidence": v.confidence, "message": str(exc)}
     fnd.upsert(adir, f)
     return {"ok": True, "finding_id": finding_id, "status": f.status,
-            "verdict": report.verdict, "checks_passed": sorted(report.checks_passed)}
+            "verdict": v.verdict, "experiment_id": exp_res["experiment_id"]}
 
 
 # --------------------------------------------------------- coverage/evidence/etc

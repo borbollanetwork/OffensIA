@@ -13,7 +13,7 @@ from offensia.adapters.base import bound_output, result
 from offensia.core.config import settings
 
 PROVIDER_KEY = "execution_primary"
-CAPABILITIES = ("network.port_scan", "web.http_probe", "generic.command")
+CAPABILITIES = ("network.port_scan", "web.http_probe")
 
 
 def run_command(target: str, command: str, use_cache: bool = True) -> dict:
