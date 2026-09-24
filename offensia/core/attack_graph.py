@@ -13,7 +13,7 @@ from pathlib import Path
 NODE_KINDS = {"asset", "identity", "privilege", "finding", "credential", "role",
               "session", "resource", "trust", "cloud_principal"}
 EDGE_KINDS = {"can_access", "can_assume", "exposes", "leaks", "enables", "requires",
-              "escalates_to", "authenticates_as", "reaches", "pivots_to"}
+              "escalates_to", "authenticates_as", "reaches", "pivots_to", "grants"}
 
 
 def _db(assessment_dir: Path) -> sqlite3.Connection:
@@ -59,12 +59,22 @@ def neighbors(assessment_dir: Path, node_id: str) -> list[dict]:
              "confidence": r[4], "validation": r[5]} for r in rows]
 
 
-def paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8) -> list[list[str]]:
+def edges(assessment_dir: Path) -> list[dict]:
+    with _db(assessment_dir) as conn:
+        rows = conn.execute("SELECT id, src, dst, kind, confidence, validation "
+                            "FROM edges").fetchall()
+    return [{"edge_id": r[0], "src": r[1], "dst": r[2], "kind": r[3],
+             "confidence": r[4], "validation": r[5]} for r in rows]
+
+
+def paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8, *, validated_only: bool = False) -> list[list[str]]:
     """Enumerate simple directed paths src->dst (DFS, bounded)."""
     with _db(assessment_dir) as conn:
-        edges = conn.execute("SELECT src, dst FROM edges").fetchall()
+        rows = conn.execute("SELECT src, dst, validation FROM edges").fetchall()
     adj: dict[str, list[str]] = {}
-    for s, d in edges:
+    for s, d, val in rows:
+        if validated_only and val != "validated":
+            continue
         adj.setdefault(s, []).append(d)
     out: list[list[str]] = []
 
@@ -80,3 +90,15 @@ def paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8) -> list[
 
     dfs(src, [src])
     return out
+
+
+def confirmed_paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8) -> list[list[str]]:
+    """Paths using only validated edges."""
+    return paths(assessment_dir, src, dst, max_depth, validated_only=True)
+
+
+def candidate_paths(assessment_dir: Path, src: str, dst: str, max_depth: int = 8) -> list[list[str]]:
+    """Paths using at least one non-validated edge."""
+    conf = {tuple(p) for p in confirmed_paths(assessment_dir, src, dst, max_depth)}
+    allp = paths(assessment_dir, src, dst, max_depth, validated_only=False)
+    return [p for p in allp if tuple(p) not in conf]
