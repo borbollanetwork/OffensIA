@@ -7,10 +7,13 @@ from offensia.core.oracles import base
 
 _DYNAMIC = [
     # keyword (csrf/nonce/_token/xsrf) followed — possibly via an attribute
-    # indirection like `name=csrf value=TOKEN` — by its token value.
+    # indirection like `name=csrf value=TOKEN` — by its token value. The
+    # optional `value` indirection is bounded to AT MOST ONE occurrence so
+    # adversarial/repeated "value value value ..." noise cannot swallow
+    # unrelated trailing content.
     re.compile(
-        r"(?i)(?:csrf[_-]?token|csrf|nonce|_token|xsrf)"
-        r"(?:[^A-Za-z0-9]|value)*[A-Za-z0-9._\-]+"
+        r'(?i)(?:csrf[_-]?token|csrf|nonce|_token|xsrf)'
+        r'[\s"\'=:]*(?:value)?[\s"\'=:]*[A-Za-z0-9._\-]+'
     ),
     re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:?\d{2})?"),
     re.compile(r"\b[A-Fa-f0-9]{16,}\b"),
